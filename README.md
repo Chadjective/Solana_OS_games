@@ -68,13 +68,13 @@ A turn-based throwing game over London, with a nod to the SMB community.
 
 - **Two monkeys** on rooftops: player 1 in a **purple** cap, player 2 in a
   **green** cap (the Solana colours). The monkeys are original pixel art.
-- **A new London skyline every round.** It mixes 3–5 landmarks from 18, with
+- **A new London skyline every round.** It mixes 3–5 landmarks from 20, with
   office blocks between them: the Shard, the Gherkin, the Cheesegrater, the
   Walkie-Talkie, Big Ben, the London Eye, Buckingham Palace, Westminster
   Abbey, Tower Bridge, St Paul's, the BT Tower, the Tower of London, Canary
-  Wharf, Battersea Power Station, Nelson's Column, the O2, Wembley and
-  Lloyd's. At most one very wide landmark (the Palace, Tower Bridge, the O2
-  or Wembley) appears per round. Some have see-through parts that bombs fly
+  Wharf, Battersea Power Station, Nelson's Column, the O2, Wembley,
+  Lloyd's, Olympia and Somerset House. At most one very wide landmark (the
+  Palace, Tower Bridge, the O2, Wembley or Somerset House) appears per round. Some have see-through parts that bombs fly
   through, such as the inside of the London Eye and the space under Tower
   Bridge.
 - **Move around before you throw.** Each turn starts in walk mode with an

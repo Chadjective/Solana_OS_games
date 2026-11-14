@@ -306,9 +306,11 @@ local function player_name(i)
 end
 
 local function radio_send(to, m)
-  if now - sent_at[1] < 1000 then return false end   -- at most 4 a second
+  -- The badge's own clock: unlike `now`, it's exact inside timers too.
+  local t = sys.millis()
+  if t - sent_at[1] < 1000 then return false end   -- at most 4 a second
   table.remove(sent_at, 1)
-  sent_at[4] = now
+  sent_at[4] = t
   mesh.send(to, m)
   return true
 end

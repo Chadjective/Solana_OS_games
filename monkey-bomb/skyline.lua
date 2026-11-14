@@ -436,6 +436,46 @@ L[#L + 1] = { name = "LLOYD'S", w = 22, value = 1, draw = function(r, x, w)
   B(16, 21, 6, 6, CRANE) B(20, 20, 7, 7, CRANE)
 end }
 
+-- Olympia (Kensington): an exhibition hall under a great arched glass
+-- roof, with small domed corner towers and a lit entrance band.
+L[#L + 1] = { name = "OLYMPIA", w = 36, value = 2, draw = function(r, x, w)
+  local B, P, D = box(x, 26)
+  local GLASS, RIB, STONE, SHADE, CAP = 0x8FC1D9, 0x4E7F99, 0xE2D6BC, 0xA8987A, 0x4E5866
+  -- the barrel roof: a half circle of glass, ribbed
+  for row = 2, 15 do
+    local dy = 16 - row
+    local half = math.floor(math.sqrt(14 * 14 - dy * dy) + 0.5)
+    B(18 - half, 17 + half, row, row, GLASS)
+  end
+  for px = 6, 30, 3 do P(px, px, 4, 15, RIB) end
+  P(4, 31, 15, 15, RIB)
+  -- the front and its towers
+  B(1, 34, 16, 25, STONE)
+  B(0, 4, 10, 25, STONE) B(31, 35, 10, 25, STONE)
+  B(1, 3, 8, 9, CAP) B(2, 2, 7, 7, CAP)
+  B(32, 34, 8, 9, CAP) B(33, 33, 7, 7, CAP)
+  P(5, 30, 18, 18, WARM)                         -- the lit sign band
+  P(14, 21, 20, 25, SHADE) P(15, 20, 19, 19, SHADE)   -- the arched entrance
+  for px = 7, 12, 2 do P(px, px, 21, 23, WARM) P(px + 16, px + 16, 21, 23, WARM) end
+end }
+
+-- Somerset House: a long neoclassical front with arches along the bottom,
+-- a central pediment and a small dome with a flag.
+L[#L + 1] = { name = "SOMERSET HOUSE", w = 44, value = 2, wide = true, draw = function(r, x, w)
+  local B, P, D = box(x, 22)
+  local STONE, SHADE, DOME, WIN = 0xD9CFB8, 0xA89C82, 0x7E9AA0, WARM
+  B(21, 21, 0, 3, 0xC0C0C0)
+  B(22, 24, 0, 1, 0xC8102E)
+  B(19, 24, 3, 3, DOME) B(18, 25, 4, 5, DOME)
+  B(16, 27, 6, 6, STONE) B(14, 29, 7, 7, STONE)
+  B(0, 43, 8, 8, SHADE)                          -- the cornice
+  B(0, 43, 9, 21, STONE)
+  for px = 2, 42, 3 do D(px, 11, WIN) D(px, 14, WIN) end
+  P(0, 43, 16, 16, SHADE)
+  for px = 1, 41, 4 do P(px, px + 1, 18, 21, 0x3A3226) P(px, px + 1, 17, 17, SHADE) end
+  for px = 17, 26, 2 do P(px, px, 9, 15, SHADE) end    -- the portico's columns
+end }
+
 S.LANDMARKS = L
 
 ---------------------------------------------------------------------------
