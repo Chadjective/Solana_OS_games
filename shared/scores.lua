@@ -16,7 +16,11 @@
 --       { label = "SPRINT 40 TIME", low = true, fmt = clock }, -- lower is better
 --     },
 --     mine = function() return { best_lamports, best_time } end,  -- 0 = none yet
+--     day = function() return today end,   -- optional: the day number, for daily categories
 --   })
+--
+-- A category with `daily = true` (e.g. today's daily challenge) only lists
+-- scores from the same day: each announcement carries its day.
 --   board:tick(ms, quiet)    -- every tick; quiet = true while the radio is busy (a 2-badge game)
 --   board:handle(from, msg)  -- in on_mesh, first: true when it was a score message
 --   board:open(on_close)     -- show the leaderboard screen; on_close runs when it's closed
@@ -65,7 +69,7 @@ end
 
 function Scores:save()
   local out = {}
-  for id, e in pairs(self.known) do out[id] = { n = e.n, v = e.v } end
+  for id, e in pairs(self.known) do out[id] = { n = e.n, v = e.v, d = e.d } end
   storage.set("nearby", out)
   self.saved_at, self.dirty = self.t, false
 end
@@ -76,7 +80,9 @@ function Scores:tick(ms, quiet)
     local v = self.opts.mine()
     local any = false
     for _, x in ipairs(v) do if x > 0 then any = true end end
-    if any and self.opts.send("*", { t = "sc", v = v }) then
+    local msg = { t = "sc", v = v }
+    if self.opts.day then msg.d = self.opts.day() end
+    if any and self.opts.send("*", msg) then
       self.next_announce = self.t + ANNOUNCE_EVERY
     end
   end
@@ -89,7 +95,7 @@ function Scores:handle(from, m)
   local v = {}
   for i = 1, #self.opts.categories do v[i] = tonumber(m.v[i]) or 0 end
   local e = self.known[from] or {}
-  e.n, e.v, e.at = self.opts.name_of(from), v, self.t
+  e.n, e.v, e.at, e.d = self.opts.name_of(from), v, self.t, tonumber(m.d)
   self.known[from] = e
   self:trim()
   self.dirty = true
@@ -105,8 +111,10 @@ function Scores:rows()
   if mine > 0 then
     rows[#rows + 1] = { name = "YOU", score = mine, here = true, me = true }
   end
+  local today = self.opts.day and self.opts.day()
   for _, e in pairs(self.known) do
     local s = e.v and e.v[self.cat] or 0
+    if cat.daily and e.d ~= today then s = 0 end      -- another day's score
     if s > 0 then
       rows[#rows + 1] = { name = e.n or "?", score = s, here = e.at ~= nil and self.t - e.at < HERE_FOR }
     end

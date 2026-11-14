@@ -71,13 +71,15 @@ class Canvas:
 
 
 class Sim:
-    def __init__(self, app, storage=None, badge_id=None, name=None):
+    def __init__(self, app, storage=None, badge_id=None, name=None, unix=None):
         self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
         self.M = self.lua.eval(f'dofile("{os.path.join(HERE, "badge_mock.lua")}")')
         self.M.make_canvas = Canvas
         if badge_id:
             self.M.badge_id = badge_id
         self.name = name
+        if unix is not None:
+            self.M.unix = unix               # the badge's clock is synced (sys.time)
         # What the app finds in storage when it starts (e.g. saved best scores).
         for k, v in (storage or {}).items():
             self.M.store[k] = self.to_lua(v)

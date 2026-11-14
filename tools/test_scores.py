@@ -27,9 +27,12 @@ GAMES = [
      [[("@bob", "9"), ("YOU", "6")], [("YOU", "1")]]),
     ("monkey-bomb", {"best_points": 1200, "match_wins": [1, 0, 2]}, {"best_points": 3400, "match_wins": [0, 0, 0]}, 4,
      [[("@bob", "3,400"), ("YOU", "1,200")], [("YOU", "3")]]),
-    ("proof-of-stack", {"best": {"lamports": 50000, "sprint": 95000, "wins": 2}},
-     {"best": {"lamports": 120000, "sprint": 81000, "wins": 0}}, 3,
-     [[("@bob", "120,000"), ("YOU", "50,000")], [("@bob", "1:21.0"), ("YOU", "1:35.0")], [("YOU", "2")]]),
+    ("proof-of-stack", {"best": {"lamports": 50000, "sprint": 95000, "wins": 2},
+                        "day": 20771, "daily": {"day": 20771, "best": 7000}},
+     {"best": {"lamports": 120000, "sprint": 81000, "wins": 0},
+      "day": 20771, "daily": {"day": 20771, "best": 9000}}, 4,
+     [[("@bob", "120,000"), ("YOU", "50,000")], [("@bob", "1:21.0"), ("YOU", "1:35.0")], [("YOU", "2")],
+      [("@bob", "9,000"), ("YOU", "7,000")]]),
 ]
 
 
@@ -112,12 +115,38 @@ def check_game(app, store_a, store_b, downs, expected):
     assert net.max_per_second(a.sent) <= 4 and net.max_per_second(b.sent) <= 4
 
 
+def daily_other_day():
+    """A badge still on yesterday's daily challenge doesn't show in today's list."""
+    a = Sim("proof-of-stack", {"day": 20771, "daily": {"day": 20771, "best": 7000}}, "AAAAAA", "@alice")
+    b = Sim("proof-of-stack", {"day": 20770, "daily": {"day": 20770, "best": 9000},
+                               "best": {"lamports": 500, "sprint": 0, "wins": 0}}, "BBBBBB", "@bob")
+    a.sent, b.sent = [], []
+    net.link(a, b)
+    net.LOSS = 0.0
+    stats = {"max_size": 0, "lost": 0}
+    for _ in range(250):
+        a.tick(30)
+        b.tick(30)
+        net.pump(a, b, stats)
+        net.pump(b, a, stats)
+    for _ in range(4):
+        a.press("down")
+    a.press("select")
+    a.tick(30)
+    assert [r[:2] for r in rows(a)] == [("@bob", "500")], rows(a)       # B is heard...
+    for _ in range(3):
+        a.press("right")
+    assert [r[:2] for r in rows(a)] == [("YOU", "7,000")], rows(a)      # ...but not in today's daily
+    print("proof-of-stack: yesterday's daily score is left out of today's daily list")
+
+
 def main():
     random.seed(1)
     r = subprocess.run([sys.executable, os.path.join(HERE, "sync_shared.py"), "--check"])
     assert r.returncode == 0, "shared copies differ"
     for g in GAMES:
         check_game(*g)
+    daily_other_day()
     print("OK")
 
 

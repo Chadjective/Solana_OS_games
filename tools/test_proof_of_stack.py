@@ -81,8 +81,9 @@ def canvas(sim, w, h):
 
 
 class Bot:
-    def __init__(self, sim, skill=1.0, rnd=None, ticker=None):
+    def __init__(self, sim, skill=1.0, rnd=None, ticker=None, drop=True):
         self.sim, self.skill, self.rnd = sim, skill, rnd or random.Random(1)
+        self.drop = drop          # False: let pieces fall on their own (a slow player)
         # how time passes while the bot holds a key (two badges tick together)
         self.ticker = ticker or (lambda: sim.tick(30))
         self.base = {sim.M.rgb565(c): k for k, (_, _, c, _) in enumerate(SHAPES)}
@@ -187,7 +188,7 @@ class Bot:
         dx = x - 3
         for _ in range(abs(dx)):
             self.tap(keys["plus"] if dx > 0 else keys["minus"])
-        if self.playing():                  # the game may have ended meanwhile
+        if self.drop and self.playing():    # the game may have ended meanwhile
             self.sim.press("select")
 
     def playing(self):
@@ -295,8 +296,8 @@ def start_versus(loss):
             net.pump(a, b, stats)
             net.pump(b, a, stats)
     for s in (a, b):
-        s.press("down")
-        s.press("down")
+        for _ in range(3):                   # menu: Marathon, Sprint, Daily, 2 badges
+            s.press("down")
         s.press("select")
     for _ in range(300):
         tick()
@@ -361,6 +362,62 @@ def clusters_check(shots_dir=None):
     return sim
 
 
+def daily_check():
+    """The daily challenge: two badges on the same date get the same pieces,
+    the game ends after 2 minutes, today's best is saved and shown, and the
+    next day is a new challenge."""
+    day = 20771                                  # 14 November 2026
+    unix = day * 86400 + 3600
+
+    def first_pieces(sim, n=12):
+        bot = Bot(sim, 1.0, random.Random(1))
+        seq = []
+        for _ in range(20000):
+            if bot.step():
+                seq.append(bot.current)
+            sim.tick(30)
+            if len(seq) >= n:
+                return seq
+        return seq
+
+    sims = []
+    for name in ("@alice", "@bob"):
+        s = Sim("proof-of-stack", unix=unix)
+        assert any(str(i.title) == "Daily challenge #318" for i in s.M.focus_list._items.values())
+        s.press("down")
+        s.press("down")
+        s.press("select")
+        sims.append(s)
+    assert "DAILY #318" in texts(sims[0])
+    pa, pb = first_pieces(sims[0]), first_pieces(sims[1])
+    assert pa == pb, (pa, pb)
+    # A slow player (pieces fall on their own) lasts the 2 minutes.
+    s = sims[0]
+    bot = Bot(s, 1.0, random.Random(3), drop=False)
+    bot.last_next = bot.read_next()
+    for _ in range(6000):
+        bot.step()
+        s.tick(30)
+        if "TIME'S UP" in texts(s) or "BLOCKSPACE FULL" in texts(s):
+            break
+    # (A fast player can also fill the blockspace before time's up: that ends it too.)
+    t = texts(s)
+    assert "TIME'S UP" in t, t
+    score = value(s, "LAMPORTS")
+    assert any("BEST TODAY" in x for x in t), t
+    s.press("back")
+    s.tick(30)
+    row = next(i for i in s.M.focus_list._items.values() if str(i.title).startswith("Daily"))
+    assert str(row.right) == score, (row.right, score)
+    # the next day: a new number, no best yet
+    tomorrow = Sim("proof-of-stack", {"daily": {"day": day, "best": int(score.replace(",", ""))}},
+                   unix=unix + 86400)
+    row = next(i for i in tomorrow.M.focus_list._items.values() if str(i.title).startswith("Daily"))
+    assert str(row.title) == "Daily challenge #319" and row.right is None, (row.title, row.right)
+    print(f"daily: both badges got the same pieces {pa[:6]}...; 2 minutes -> TIME'S UP with "
+          f"{score} lamports, saved as today's best; the next day is #319 with no best yet")
+
+
 def main():
     random.seed(3)
 
@@ -379,6 +436,7 @@ def main():
     assert peak < BUDGET * 0.5
 
     clusters_check()
+    daily_check()
     spam_check()
 
     # Versus: a strong bot against a weaker one, 15% of messages lost.
