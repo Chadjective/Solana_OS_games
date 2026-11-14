@@ -334,6 +334,7 @@ def clusters_check(shots_dir=None):
     """A strong bot plays Marathon through every cluster: gravity turns from
     down (Mainnet) to sideways (Devnet), up (Testnet), then every epoch
     (Localnet), and the bot keeps finalizing blocks in each."""
+    random.seed(3)          # a fixed game, so the run always reaches every direction
     sim = Sim("proof-of-stack")
     sim.press("select")
     bot = Bot(sim, 1.0, random.Random(11))
