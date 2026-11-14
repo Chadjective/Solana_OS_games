@@ -536,6 +536,15 @@ local function move_remote(dt)
 end
 
 ---------------------------------------------------------------------------
+-- Nearby leaderboard (scores.lua, shared by all the games)
+---------------------------------------------------------------------------
+local board = require("scores").new({
+  game = "Solana Pong", send = radio_send, name_of = name_of,
+  categories = { { label = "WINS VS CPU" }, { label = "2-BADGE WINS" } },
+  mine = function() return { (wins[1] or 0) + (wins[2] or 0) + (wins[3] or 0), duo_wins } end,
+})
+
+---------------------------------------------------------------------------
 -- Menu
 ---------------------------------------------------------------------------
 local function menu_items()
@@ -545,6 +554,7 @@ local function menu_items()
     items[i] = { title = "1 player: " .. l.name, right = w > 0 and ("wins " .. w) or nil }
   end
   items[#items + 1] = { title = "2 players: 2 badges", right = duo_wins > 0 and ("wins " .. duo_wins) or nil }
+  items[#items + 1] = { title = "Nearby leaderboard" }
   return items
 end
 
@@ -563,6 +573,10 @@ local function open_menu()
       menu_i = i
       if i <= #LEVELS then
         start_cpu_game(i)
+      elseif i == #LEVELS + 2 then
+        close_menu()
+        state = "board"
+        board:open(function() open_menu() end)
       elseif not has_mesh then
         ui.toast("Two-badge games need the mesh radio")
       else
@@ -686,6 +700,7 @@ end
 
 function on_mesh(from, m)
   if type(m) ~= "table" then return end
+  if board:handle(from, m) then return end
   if m.t == "hi" then
     local is_new = seen[from] == nil
     seen[from] = now
@@ -728,6 +743,8 @@ end
 ---------------------------------------------------------------------------
 function on_tick(ms)
   now = now + ms
+  -- Announce our bests for nearby leaderboards, except during a 2-badge game.
+  board:tick(ms, mode == "duo" and peer ~= nil and state == "play")
   if mode == "duo" and (state == "play" or state == "over") then
     net_tick()
     if state == "play" and now - last_heard > LOST_AFTER then
@@ -767,6 +784,7 @@ local function leave_duo()
 end
 
 function on_key(key, rep)
+  if state == "board" then return board:key(key, rep) end
   if state == "menu" then
     return key ~= "back"               -- the list handles up/down/select
   end

@@ -71,14 +71,27 @@ class Canvas:
 
 
 class Sim:
-    def __init__(self, app):
+    def __init__(self, app, storage=None, badge_id=None, name=None):
         self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
         self.M = self.lua.eval(f'dofile("{os.path.join(HERE, "badge_mock.lua")}")')
         self.M.make_canvas = Canvas
+        if badge_id:
+            self.M.badge_id = badge_id
+        self.name = name
+        # What the app finds in storage when it starts (e.g. saved best scores).
+        for k, v in (storage or {}).items():
+            self.M.store[k] = self.to_lua(v)
         # Repeatable runs: seed the game's math.random from Python's random.
         self.lua.execute(f"math.randomseed({random.randint(1, 2**30)})")
         self.M.run(os.path.join(HERE, "..", app))
         self.g = self.lua.globals()
+
+    def to_lua(self, v):
+        if isinstance(v, dict):
+            return self.lua.table_from({k: self.to_lua(x) for k, x in v.items()})
+        if isinstance(v, (list, tuple)):
+            return self.lua.table_from([self.to_lua(x) for x in v])
+        return v
 
     def press(self, key, rep=False):
         self.M.press(key, rep)

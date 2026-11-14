@@ -720,6 +720,19 @@ local function on_peer_state(m)
 end
 
 ---------------------------------------------------------------------------
+-- Nearby leaderboard (scores.lua, shared by all the games)
+---------------------------------------------------------------------------
+local board = require("scores").new({
+  game = "Proof of Stack", send = radio_send, name_of = name_of,
+  categories = {
+    { label = "MARATHON LAMPORTS" },
+    { label = "SPRINT 40 TIME", low = true, fmt = clock },
+    { label = "VERSUS WINS" },
+  },
+  mine = function() return { best.lamports or 0, best.sprint or 0, best.wins or 0 } end,
+})
+
+---------------------------------------------------------------------------
 -- Menus
 ---------------------------------------------------------------------------
 local close_menu, close_lobby, open_lobby
@@ -729,6 +742,7 @@ local function menu_items()
     { title = "1 player: Marathon", right = (best.lamports or 0) > 0 and commas(best.lamports) or nil },
     { title = "1 player: Sprint 40", right = (best.sprint or 0) > 0 and clock(best.sprint) or nil },
     { title = "2 players: 2 badges", right = (best.wins or 0) > 0 and ("wins " .. best.wins) or nil },
+    { title = "Nearby leaderboard" },
   }
 end
 
@@ -747,6 +761,7 @@ local function open_menu()
       menu_i = i
       if i == 1 then close_menu() mode = "marathon" new_game(math.random(1, 2147483000))
       elseif i == 2 then close_menu() mode = "sprint" new_game(math.random(1, 2147483000))
+      elseif i == 4 then close_menu() state = "board" board:open(function() open_menu() end)
       elseif not has_mesh then ui.toast("Versus needs the mesh radio")
       else close_menu() open_lobby() end
     end,
@@ -842,6 +857,7 @@ end
 ---------------------------------------------------------------------------
 function on_mesh(from, m)
   if type(m) ~= "table" then return end
+  if board:handle(from, m) then return end
   if m.t == "hi" then
     local is_new = LB.seen[from] == nil
     LB.seen[from] = now
@@ -898,6 +914,8 @@ end
 
 function on_tick(ms)
   now = now + ms
+  -- Announce our bests for nearby leaderboards, except during a versus game.
+  board:tick(ms, mode == "versus" and VS.peer ~= nil and (state == "play" or state == "clear"))
   if mode == "versus" and VS.peer and state ~= "menu" and state ~= "lobby" then
     if now - VS.last_send >= NET.STATE_EVERY then send_state() end
     if (state == "play" or state == "clear") and now - VS.last_heard > NET.LOST_AFTER then
@@ -942,6 +960,7 @@ function on_tick(ms)
 end
 
 function on_key(key, rep)
+  if state == "board" then return board:key(key, rep) end
   if state == "menu" then return key ~= "back" end
   if state == "lobby" then
     if key == "back" and not rep then close_lobby() open_menu() end
