@@ -8,7 +8,7 @@ small **Lua** programs. Each game is a folder you upload at the badge site's
 
 | Game | Folder | Status |
 |---|---|---|
-| Solana Pong | [`pong/`](pong/) | Live in the badge App Store |
+| Solana Pong | [`pong/`](pong/) | Set up on the badge site |
 | Solana Monkey Bomb (SMB) | [`monkey-bomb/`](monkey-bomb/) | Tested in the official emulator |
 | Proof of Stack | [`proof-of-stack/`](proof-of-stack/) | New: tested in the local simulator |
 
