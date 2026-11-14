@@ -8,8 +8,9 @@ small **Lua** programs. Each game is a folder you upload at the badge site's
 
 | Game | Folder | Status |
 |---|---|---|
-| Solana Pong | [`pong/`](pong/) | Playable (tested in the local simulator) |
-| Solana Monkey Bomb (SMB) | [`monkey-bomb/`](monkey-bomb/) | Playable (tested in the local simulator) |
+| Solana Pong | [`pong/`](pong/) | Set up on the badge site |
+| Solana Monkey Bomb (SMB) | [`monkey-bomb/`](monkey-bomb/) | Tested in the official emulator |
+| Proof of Stack | [`proof-of-stack/`](proof-of-stack/) | New: tested in the local simulator |
 
 ## Solana Pong
 
@@ -179,10 +180,67 @@ confirms it, so lost messages are fine.
 | `monkey-bomb/skyline.lua` | The London skyline: every landmark's drawing, the Thames and its bridges, snow on the roofs, the round's weather, and how a city is put together. To add a landmark, add one entry here. |
 | `monkey-bomb/app.json` | The manifest (`led` for the lights, `mesh` for two-badge games). |
 
+## Proof of Stack
+
+![Proof of Stack: the menu, a Marathon game in epoch 2, a versus game with the other player's stack, and a versus loss with grey spam rows](docs/proof-of-stack-preview.png)
+
+An original falling-block puzzle with Solana and blockchain jokes throughout
+(it uses its own name, shapes' colours and look, not any existing game's).
+
+- **Transactions** fall into the **blockspace**. Fill a whole row to
+  **finalize a block**: it clears and pays out in **lamports**, starting at
+  5,000 (Solana's base fee per signature) and multiplied by the epoch.
+  Finalizing 4 at once is a **SUPERMAJORITY**.
+- **Epochs:** every 10 blocks a new epoch starts, and transactions fall
+  faster.
+- **Cluster switch:** as the epochs go by, the game moves across Solana's
+  clusters, and gravity turns with it:
+
+  | Epochs | Cluster | Transactions... | Buttons |
+  |---|---|---|---|
+  | 1–3 | Mainnet | fall down | LEFT/RIGHT move, UP rotate, DOWN soft drop |
+  | 4–6 | Devnet | slide in from the left (a wide board) | UP/DOWN move, LEFT rotate, RIGHT soft drop |
+  | 7–9 | Testnet | rise from the bottom | LEFT/RIGHT move, DOWN rotate, UP soft drop |
+  | 10+ | Localnet | turn every epoch: down, right, up, left | as above for each direction |
+
+  The stack you've built turns with the board, a "CLUSTER SWITCH" message
+  and an LED sweep mark each change, and the hint bar always shows the
+  buttons. SELECT always drops instantly.
+- **SLOT** ticks at Solana's real slot time (about 400 ms), and **TPS** shows
+  how fast you're playing (about one piece a second reads as Solana's famous
+  65,000).
+- Each finalized block flashes one of the eight ideas Solana was built on:
+  Proof of History, Tower BFT, Turbine, Gulf Stream, Sealevel, Pipelining,
+  Cloudbreak and Archivers.
+- A hard drop is a **priority fee**: 2 extra lamports per row it falls.
+- The game ends when the **blockspace is full**.
+- **Modes:**
+  - **1 player: Marathon.** Play as long as you can. The best score is saved.
+  - **1 player: Sprint 40.** Finalize 40 blocks as fast as you can. The best
+    time is saved.
+  - **2 players: 2 badges.** Versus over the badge radio. Finalizing 2, 3 or
+    4 blocks at once sends 1, 2 or 4 **spam transaction** rows to the other
+    player, which rise from the bottom of their board with one gap each.
+    Spam you finalize away first cancels spam headed your way. You see the
+    other player's stack in a mini view. Both players get the same pieces.
+
+![Cluster switch: Mainnet (falling down), Devnet (sideways), Testnet (rising) and Localnet (here falling left)](docs/proof-of-stack-clusters.png)
+
+**Controls (Mainnet):** LEFT/RIGHT move (hold to slide), UP rotates, DOWN
+drops faster, SELECT drops instantly, CANCEL quits. On the other clusters the
+arrows turn with gravity, as in the table above.
+
+**Permissions:** LEDs (`led`) and Nearby badges (`mesh`, for versus).
+
+| File | What it is |
+|---|---|
+| `proof-of-stack/main.lua` | The whole game. |
+| `proof-of-stack/app.json` | The manifest. |
+
 ## Try a game on a real badge or the emulator
 
 1. Open the badge site's `/apps/submit` page and drop in the game's folder
-   (`pong/` or `monkey-bomb/`).
+   (`pong/`, `monkey-bomb/` or `proof-of-stack/`).
 2. Click **Try in emulator** to play it in the browser, or **Run on badge** to
    copy it to a badge over USB (desktop Chrome or Edge).
 3. **Publish** when you're happy. Publishing needs an account with X linked.
@@ -210,6 +268,12 @@ These run on a computer, not on the badge.
   5.5 refuses but these tools' Lua 5.4 accepts (changing a loop's counter
   inside the loop, and `global` as a name). The app store compiles every
   file and refuses a version that doesn't, so run this before submitting.
+- `python3 tools/test_proof_of_stack.py` plays Proof of Stack with a bot that
+  reads the board off the screen: a Sprint to 40 blocks, a Marathon to the
+  end, a Marathon through all four clusters (120 blocks, every gravity
+  direction), a check that spam rows reach the other badge, and a versus match
+  between two badges with 15% of messages dropped, where both must agree on
+  the winner.
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
 
 The tools need `pip install lupa pillow`. The stand-in badge only approximates
