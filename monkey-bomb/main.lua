@@ -1148,6 +1148,17 @@ local function cycle_weapon(dir)
 end
 
 ---------------------------------------------------------------------------
+-- Nearby leaderboard (scores.lua, shared by all the games)
+---------------------------------------------------------------------------
+local board = require("scores").new({
+  game = "Monkey Bomb", send = radio_send, name_of = name_of,
+  categories = { { label = "BEST MATCH POINTS" }, { label = "MATCHES WON" } },
+  mine = function()
+    return { best_points, (match_wins[1] or 0) + (match_wins[2] or 0) + (match_wins[3] or 0) }
+  end,
+})
+
+---------------------------------------------------------------------------
 -- Menus
 ---------------------------------------------------------------------------
 local close_menu, close_lobby, open_lobby
@@ -1159,6 +1170,7 @@ local function menu_items()
     { title = "1 player: Hard", right = right(match_wins[2] or 0) },
     { title = "2 players: pass the badge", right = best_points > 0 and ("best " .. best_points) or nil },
     { title = "2 players: 2 badges", right = right(match_wins[3] or 0) },
+    { title = "Nearby leaderboard" },
   }
 end
 
@@ -1199,6 +1211,10 @@ local function open_menu()
         close_menu()
         mode = "hot"
         start_match()
+      elseif i == 5 then
+        close_menu()
+        state = "board"
+        board:open(function() open_menu() end)
       elseif not has_mesh then
         ui.toast("Two-badge games need the mesh radio")
       else
@@ -1248,6 +1264,7 @@ lobby = Lobby.new({ title = "2 PLAYERS", game = "Monkey Bomb", on_start = start_
 function on_mesh(from, m)
   if type(m) ~= "table" then return end
   if lobby:handle(from, m) then return end
+  if board:handle(from, m) then return end
   if m.t == "k" or m.t == "th" or m.t == "ok" then
     if mode ~= "duo" or from ~= peer or m.g ~= game_id then return end
     last_heard = now
@@ -1368,6 +1385,8 @@ end
 
 function on_tick(ms)
   now = now + ms
+  -- Announce our bests for nearby leaderboards, except during a 2-badge game.
+  board:tick(ms, mode == "duo" and peer ~= nil)
   if mode == "duo" and state ~= "menu" and state ~= "lobby" then net_tick() end
   if state ~= "menu" and state ~= "lobby" then weather_tick(ms) end
 
@@ -1407,6 +1426,7 @@ local function leave_duo()
 end
 
 function on_key(key, rep)
+  if state == "board" then return board:key(key, rep) end
   if state == "menu" then return key ~= "back" end
 
   if state == "lobby" then

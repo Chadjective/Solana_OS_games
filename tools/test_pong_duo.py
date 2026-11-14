@@ -56,7 +56,7 @@ def pump(src, dst, stats):
         if random.random() < LOSS:
             stats["lost"] += 1
             continue
-        dst.M.deliver(src.M.badge_id, dst.lua.table_from(msg))
+        dst.M.deliver(src.M.badge_id, dst.to_lua(msg))   # nested tables too
 
 
 def max_per_second(times):

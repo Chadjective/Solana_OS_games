@@ -103,7 +103,8 @@ function timer.after(ms, fn) tid = tid + 1; M.timers[tid] = { at = M.now + ms, f
 function timer.every(ms, fn) tid = tid + 1; M.timers[tid] = { at = M.now + ms, fn = fn, every = ms }; return tid end
 function timer.cancel(id) M.timers[id] = nil end
 
-local store = {}
+M.store = {}                 -- the app's storage (a test can fill it before the app starts)
+local store = M.store
 storage = {}
 function storage.get(k) return store[k] end
 function storage.set(k, v) store[k] = v end

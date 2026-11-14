@@ -58,6 +58,7 @@ game in both.
 | `pong/main.lua` | The game. |
 | `pong/art.lua` | The pixel art (ball, paddles, net, title logo). It is generated: don't edit it by hand. |
 | `pong/app.json` | The manifest: name, icon, colour, and permissions (`led` for the lights, `mesh` for two-badge games). |
+| `pong/scores.lua` | The nearby leaderboard (a copy of `shared/scores.lua`). |
 
 Everything in `pong/` ships to the badge, so keep only game files there.
 
@@ -180,6 +181,7 @@ confirms it, so lost messages are fine.
 | `monkey-bomb/cpu.lua` | The CPU monkey's thinking: where to stand, which weapon, what angle and power. |
 | `monkey-bomb/lobby.lua` | The two-badge lobby (finding players, invites) and the radio. Written to be shared by all the games. |
 | `monkey-bomb/art.lua` | The pixel art: monkeys, weapons, pickups and the explosion. |
+| `monkey-bomb/scores.lua` | The nearby leaderboard (a copy of `shared/scores.lua`). |
 | `monkey-bomb/skyline.lua` | The London skyline: every landmark's drawing, the Thames and its bridges, snow on the roofs, the round's weather, and how a city is put together. To add a landmark, add one entry here. |
 | `monkey-bomb/app.json` | The manifest (`led` for the lights, `mesh` for two-badge games). |
 
@@ -215,6 +217,11 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
 - Each finalized block flashes one of the eight ideas Solana was built on:
   Proof of History, Tower BFT, Turbine, Gulf Stream, Sealevel, Pipelining,
   Cloudbreak and Archivers.
+- **Solana colours:** the seven transaction shapes are seven even steps of the
+  official Solana gradient, from Solana Purple `#9945FF` to Solana Green
+  `#14F195` (the two brand colours), on a near-black background. Spam rows
+  are neutral grey, and the cluster names use the same colours (Mainnet
+  green, Devnet purple, Testnet the blue midpoint, Localnet white).
 - A hard drop is a **priority fee**: 2 extra lamports per row it falls.
 - The game ends when the **blockspace is full**.
 - **Modes:**
@@ -239,6 +246,29 @@ arrows turn with gravity, as in the table above.
 |---|---|
 | `proof-of-stack/main.lua` | The whole game. |
 | `proof-of-stack/app.json` | The manifest. |
+| `proof-of-stack/scores.lua` | The nearby leaderboard (a copy of `shared/scores.lua`). |
+
+## Nearby leaderboards (all games)
+
+![The nearby leaderboard in Proof of Stack: Marathon lamports and Sprint 40 times from the badges around you](docs/leaderboard-preview.png)
+
+Every game's menu has **Nearby leaderboard**: the best scores of the badges
+around you, with yours, best first. LEFT/RIGHT switches category:
+
+| Game | Categories |
+|---|---|
+| Solana Pong | Wins vs CPU, 2-badge wins |
+| Solana Monkey Bomb | Best match points, matches won |
+| Proof of Stack | Marathon lamports, Sprint 40 time (lowest first), versus wins |
+
+- While a game is open, the badge announces its own bests over the radio
+  every 3 seconds (paused during two-badge games, so they keep the radio).
+  Only badges with the **same game open** hear each other, so each game has
+  its own board.
+- Each badge remembers who it has heard (up to 30), saved on the badge.
+  Players still nearby show as "here now"; ones who've left as "earlier".
+- It's one module, `shared/scores.lua`, copied into every game's folder by
+  `python3 tools/sync_shared.py` (edit the copy in `shared/`, then run it).
 
 ## Try a game on a real badge or the emulator
 
@@ -277,6 +307,12 @@ These run on a computer, not on the badge.
   direction), a check that spam rows reach the other badge, and a versus match
   between two badges with 15% of messages dropped, where both must agree on
   the winner.
+- `python3 tools/test_scores.py` checks the nearby leaderboards in all three
+  games: two badges hear each other's bests, the ranking (and lowest-first
+  times), switching category, "here now" then "earlier", remembering after
+  a restart, and that the shared copies match.
+- `python3 tools/sync_shared.py` copies `shared/` modules into the games
+  (`--check` only checks).
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
 
 The tools need `pip install lupa pillow`. The stand-in badge only approximates
