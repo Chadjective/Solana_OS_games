@@ -29,7 +29,7 @@ S.RIVER_W = 26
 local BRIDGES = { "LONDON BRIDGE", "WATERLOO BRIDGE", "BLACKFRIARS BRIDGE", "MILLENNIUM BRIDGE" }
 local CW, CH = S.CW, S.CH
 local GROUND_Y = CH - 2                -- first row of the ground
-local LIT, DARK_WIN = 0xF2C14E, 0x262A3A
+local LIT = 0xF2C14E
 local BODIES = { 0x6E3B32, 0x8A8270, 0x3B4C66, 0x55586A, 0x4A3F5C }
 
 ---------------------------------------------------------------------------
@@ -81,7 +81,9 @@ end
 local function windows(r, x, top, w)
   for wy = top + 2, GROUND_Y - 2, 3 do
     for wx = x + 1, x + w - 2, 2 do
-      dot(wx, wy, r.chance(0.4) and LIT or DARK_WIN)
+      -- Only lit windows are drawn (the rest show the wall): one call per
+      -- window adds up across a whole city, at the start of each round.
+      if r.chance(0.4) then dot(wx, wy, LIT) end
     end
   end
 end
@@ -213,17 +215,27 @@ end }
 -- The London Eye: a thin wheel with capsules, on an upside-down V of legs.
 -- Only the rim, spokes, capsules and legs are solid.
 L[#L + 1] = { name = "LONDON EYE", w = 40, value = 3, draw = function(r, x, w)
-  local B, P, D, Ln = box(x, 46)
+  local B = box(x, 46)
   local RIM, SPOKE, CAPSULE, LEG = 0x6FD3FF, 0x2F6E94, 0xFFF6C8, 0xC8D0DA
   local cx, cy = 20, 20
-  for k = 0, 7 do
-    local a = k * math.pi / 4
-    Ln(cx, cy, cx + math.floor(17 * math.cos(a) + 0.5), cy + math.floor(17 * math.sin(a) + 0.5), SPOKE)
+  -- Spokes: the straight ones as single bars, the diagonals pixel by pixel.
+  B(cx - 17, cx + 17, cy, cy, SPOKE)
+  B(cx, cx, cy - 17, cy + 17, SPOKE)
+  for k = 1, 12 do
+    B(cx + k, cx + k, cy + k, cy + k, SPOKE) B(cx - k, cx - k, cy + k, cy + k, SPOKE)
+    B(cx + k, cx + k, cy - k, cy - k, SPOKE) B(cx - k, cx - k, cy - k, cy - k, SPOKE)
   end
-  for deg = 0, 358, 3 do
-    local a = math.rad(deg)
-    B(cx + math.floor(17 * math.cos(a) + 0.5), cx + math.floor(17 * math.cos(a) + 0.5),
-      cy + math.floor(17 * math.sin(a) + 0.5), cy + math.floor(17 * math.sin(a) + 0.5), RIM)
+  -- The rim, a row at a time: on each row, from where the next row out
+  -- reaches to where this one does (so the outline has no gaps).
+  local function reach(dy)
+    if dy > 17 then return -1 end
+    return math.floor(math.sqrt(17 * 17 - dy * dy) + 0.5)
+  end
+  for dy = -17, 17 do
+    local out, inn = reach(math.abs(dy)), reach(math.abs(dy) + 1) + 1
+    if inn > out then inn = out end
+    B(cx + inn, cx + out, cy + dy, cy + dy, RIM)
+    B(cx - out, cx - inn, cy + dy, cy + dy, RIM)
   end
   for k = 0, 15 do
     local a = k * math.pi / 8
@@ -232,8 +244,12 @@ L[#L + 1] = { name = "LONDON EYE", w = 40, value = 3, draw = function(r, x, w)
     B(px - 1, px, py - 1, py, CAPSULE)
   end
   B(18, 22, 18, 22, RIM)
-  Ln(cx, cy, 12, 44, LEG) Ln(cx - 1, cy, 11, 44, LEG)
-  Ln(cx, cy, 28, 44, LEG) Ln(cx + 1, cy, 29, 44, LEG)
+  -- The legs: an upside-down V from the hub to the ground, 2 px thick.
+  for row = cy + 1, 43 do
+    local off = math.floor((row - cy) * 8 / 24 + 0.5)
+    B(cx - off - 1, cx - off, row, row, LEG)
+    B(cx + off, cx + off + 1, row, row, LEG)
+  end
   B(9, 31, 44, 45, LEG)
 end }
 

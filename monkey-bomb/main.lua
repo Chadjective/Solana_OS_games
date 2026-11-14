@@ -543,7 +543,7 @@ local function place_items(seed)
   items = {}
   local starts = { town.monkeys[1].x, town.monkeys[2].x }
   local tries = 0
-  while #items < ITEMS_PER_ROUND and tries < 30 do
+  while #items < ITEMS_PER_ROUND and tries < 14 do
     tries = tries + 1
     local col = r.int(6, CW - 12)
     local ok = math.abs(col - starts[1]) > 10 and math.abs(col - starts[2]) > 10
@@ -553,12 +553,10 @@ local function place_items(seed)
     end
     if ok then
       local top = nil
+      -- The first solid row under two points of the spot (checking every
+      -- pixel of every candidate cost too much of the start-of-round budget).
       for row = 4, GROUND_Y - 1 do
-        local hit = false
-        for c = col, col + 5 do
-          if solid(c, row) then hit = true break end
-        end
-        if hit then top = row break end
+        if solid(col + 1, row) or solid(col + 4, row) then top = row break end
       end
       if top and top > 24 then             -- not on a spire tip, under the score
         local kind = ITEM_KINDS[r.int(1, #ITEM_KINDS)]
