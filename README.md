@@ -77,8 +77,15 @@ A turn-based throwing game over London, with a nod to the SMB community.
   or Wembley) appears per round. Some have see-through parts that bombs fly
   through, such as the inside of the London Eye and the space under Tower
   Bridge.
+- **Move around before you throw.** Each turn starts in walk mode with an
+  energy bar. Walk along rooftops, drop into the gaps, and **climb** any wall
+  by walking into it (climbing costs double energy). Monkeys **cling** to a
+  wall they've climbed, so you can throw from the side of the Shard. **Jump**
+  to cross gaps. Your monkey throws the way it last faced, so you can climb
+  past your opponent and throw back at them. When you're in a good spot,
+  press SELECT to aim. The computer monkey doesn't move yet.
 - **Destructible:** every explosion blows a hole in the skyline. A monkey
-  whose roof is blown away drops down to the next solid surface.
+  whose roof (or wall) is blown away falls to the next solid surface.
 - **Wind** changes every round and pushes throws sideways (shown at the top).
 - **Weapons**, each player per round:
 
@@ -100,14 +107,27 @@ A turn-based throwing game over London, with a nod to the SMB community.
   over the radio. Because the game is turn-based, 2-badge games also work
   between badges far apart through a server "bridge".
 
-**Controls:** UP/DOWN aims. LEFT/RIGHT switches weapon. **Hold SELECT** to
-fill the power meter, and let go to throw. On older badge software that can't
-detect a button being let go, press SELECT once to start the meter and again
-to throw. CANCEL goes back to the menu.
+![Walking: the monkey leaves its roof, climbs onto Wembley's arch, and aims from there](docs/monkey-bomb-moving.png)
+
+**Controls:**
+
+| | Walk mode (start of each turn) | Aim mode |
+|---|---|---|
+| LEFT/RIGHT | Walk, and climb when against a wall | Switch weapon |
+| UP | Jump | Aim higher |
+| DOWN | | Aim lower |
+| SELECT | Switch to aim mode | **Hold** to fill the power meter, let go to throw |
+| CANCEL | Back to the menu | Back to walk mode |
+
+On older badge software that can't detect a button being held down or let
+go, each LEFT/RIGHT press takes one step. You also press SELECT once to start
+the power meter and again to throw.
 
 **How two badges stay in sync:** both badges build the skyline from the same
 **seed**, a starting number for all the random choices. A throw is sent as
-just its angle, power and weapon (about 50 bytes). Each badge then flies it
+just its angle, power and weapon, plus where the thrower is standing (about
+80 bytes). While a player walks, their badge also sends their position a few
+times a second, so the other player can watch them move. Each badge then flies it
 with the same fixed-step physics, so the flight, the holes, the points and
 the result are identical on both. Each throw is resent until the other badge
 confirms it, so lost messages are fine.
@@ -140,9 +160,11 @@ These run on a computer, not on the badge.
   messages a second.
 - `python3 tools/test_monkey_bomb.py` plays Monkey Bomb against the CPU on
   both levels, a pass-the-badge match, and a two-badge match with 20% of
-  messages dropped, with every weapon in play. It checks that both badges'
-  skylines stay pixel-for-pixel identical, that both agree on rounds and
-  points, and that every step stays well under the badge's CPU limit.
+  messages dropped, with every weapon in play and the players walking,
+  climbing and jumping. It checks that both badges' skylines stay
+  pixel-for-pixel identical with the monkeys in the same places, that both
+  agree on rounds and points, and that every step stays well under the
+  badge's CPU limit.
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
 
 The tools need `pip install lupa pillow`. The stand-in badge only approximates

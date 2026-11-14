@@ -25,6 +25,13 @@ local STEP = STEP_MS / 1000
 local SAFE_STEPS = 30                -- a throw can't hit its thrower for this many steps
 local CHARGE_MS = 1500               -- holding SELECT from 0 to full power
 
+-- Moving about: each turn starts with some energy to walk, climb and jump.
+local ENERGY = 70                    -- per turn
+local WALK_COST, CLIMB_COST, JUMP_COST = 1, 2, 8
+local WALK_MS, CLIMB_MS = 40, 70     -- ms per pixel walked / climbed
+local FALL_SPEED = 90                -- canvas px/s
+local JUMP_VX, JUMP_VY, JUMP_G = 38, -62, 170
+
 -- Points
 local PTS_PIXEL = 1                  -- per pixel of an ordinary block destroyed
 local PTS_ICON_PIXEL = 1             -- times a landmark's value (1..3), per pixel
@@ -143,10 +150,13 @@ local monkeys = {}
 for i = 1, 2 do
   local pal = { palette = { h = CAP[i], n = 0x8B5A2B, f = 0xE0B98A }, scale = SCALE }
   local m = { x = 0, y = 0, alive = true }
-  m.stand = ui.image(0, 0, i == 1 and MONKEY_STAND or mirror(MONKEY_STAND, 8), pal)
-  m.throw = ui.image(0, 0, i == 1 and MONKEY_THROW or mirror(MONKEY_THROW, 8), pal)
-  m.stand:show(false)
-  m.throw:show(false)
+  -- face: 1 = looking right, -1 = looking left; a monkey throws the way it faces.
+  m.face = i == 1 and 1 or -1
+  m.img = {
+    stand_r = ui.image(0, 0, MONKEY_STAND, pal), throw_r = ui.image(0, 0, MONKEY_THROW, pal),
+    stand_l = ui.image(0, 0, mirror(MONKEY_STAND, 8), pal), throw_l = ui.image(0, 0, mirror(MONKEY_THROW, 8), pal),
+  }
+  for _, img in pairs(m.img) do img:show(false) end
   monkeys[i] = m
 end
 
@@ -211,6 +221,10 @@ local town = nil         -- this round's city: buildings and who owns each colum
 local aim = { { a = 45, p = 50, w = 1 }, { a = 45, p = 50, w = 1 } }
 local ammo = { {}, {} }
 local power = 0          -- while charging
+local energy = 0         -- left this turn for walking, climbing and jumping
+local jump = nil         -- { vx, vy } while the monkey is in the air
+local move_acc = 0       -- ms towards the next pixel walked
+local moved_at = 0       -- two badges: when we last told the other badge where we are
 local now = 0
 local acc = 0            -- ms not yet simulated
 local flying = {}        -- projectiles in the air
@@ -309,11 +323,15 @@ end
 ---------------------------------------------------------------------------
 local function draw_monkey(i, throwing)
   local m = monkeys[i]
-  local sx, sy = m.x * SCALE, m.y * SCALE
-  m.stand:pos(sx, sy)
-  m.throw:pos(sx, sy)
-  m.stand:show(m.alive and not throwing)
-  m.throw:show(m.alive and throwing)
+  local want = (throwing and "throw_" or "stand_") .. (m.face > 0 and "r" or "l")
+  for k, img in pairs(m.img) do
+    if k == want and m.alive then
+      img:pos(m.x * SCALE, m.y * SCALE)
+      img:show(true)
+    else
+      img:show(false)
+    end
+  end
 end
 
 local function hide_projectiles()
@@ -326,8 +344,7 @@ local function set_play_visible(on)
   city:show(on)
   for i = 1, 2 do
     if on then draw_monkey(i, false) else
-      monkeys[i].stand:show(false)
-      monkeys[i].throw:show(false)
+      for _, img in pairs(monkeys[i].img) do img:show(false) end
     end
   end
   for _, l in ipairs(hud) do l:show(on) end
@@ -343,21 +360,21 @@ end
 -- Where a throw starts: just above the thrower's raised hand.
 local function launch_point(i)
   local m = monkeys[i]
-  if i == 1 then return m.x + 8, m.y - 1 end
+  if m.face > 0 then return m.x + 8, m.y - 1 end
   return m.x - 1, m.y - 1
 end
 
 local function launch_velocity(i, a, p, wp)
   local v = p * wp.speed
   local rad = math.rad(a)
-  local dir = i == 1 and 1 or -1
-  return dir * v * math.cos(rad), -v * math.sin(rad)
+  return monkeys[i].face * v * math.cos(rad), -v * math.sin(rad)
 end
 
 local function draw_aim()
   local show = state == "aim" or state == "charge"
   for _, d in ipairs(aim_dots) do d:show(show) end
-  power_bar:show(show)
+  power_bar:show(show or state == "move")
+  if state == "move" then power_bar:set(math.floor(energy * 100 / ENERGY)) end
   if not show then return end
   local a = aim[turn]
   local x, y = launch_point(turn)
@@ -386,7 +403,9 @@ local function update_hud()
     hud_wind:text("WIND " .. string.rep(wind > 0 and ">" or "<", math.abs(wind) // 4 + 1))
   end
   local a = aim[turn]
-  if state == "aim" then
+  if state == "move" then
+    hud_aim:text(player_name(turn) .. ": walk, climb, jump   energy " .. math.floor(energy))
+  elseif state == "aim" then
     hud_aim:text(player_name(turn) .. ": " .. ammo_text(turn, a.w) .. "  angle " .. a.a .. "  last " .. a.p)
   elseif state == "charge" then
     hud_aim:text(player_name(turn) .. ": " .. ammo_text(turn, a.w) .. "  power " .. math.floor(power))
@@ -410,15 +429,19 @@ end
 local start_cpu_turn   -- defined below
 
 local function aim_hint()
-  if has_keys then return "UP/DN aim  L/R weapon  hold SELECT throw" end
-  return "UP/DN aim  L/R weapon  SELECT power, SELECT throw"
+  if has_keys then return "UP/DN aim  L/R weapon  hold SELECT  CANCEL walk" end
+  return "UP/DN aim  L/R weapon  SELECT x2 throw  CANCEL walk"
 end
+
+local MOVE_HINT = "L/R walk + climb   UP jump   SELECT aim"
 
 local function begin_turn()
   local who = controller(turn)
   if who == "human" then
-    state = "aim"
-    ui.hint(aim_hint())
+    state = "move"
+    energy = ENERGY
+    jump = nil
+    ui.hint(MOVE_HINT)
   elseif who == "cpu" then
     state = "cpu"
     ui.hint("CANCEL menu")
@@ -443,6 +466,8 @@ local function new_round()
   for i = 1, 2 do
     local m = monkeys[i]
     m.x, m.y, m.alive = town.monkeys[i].x, town.monkeys[i].y, true
+    m.face = i == 1 and 1 or -1
+    m.cling = false
     for w, wp in ipairs(WEAPONS) do ammo[i][w] = wp.ammo end
     aim[i].w = 1
   end
@@ -498,19 +523,78 @@ end
 ---------------------------------------------------------------------------
 -- Throws, explosions and points
 ---------------------------------------------------------------------------
--- A monkey whose roof was blown away drops until it stands on something.
+---------------------------------------------------------------------------
+-- Moving about: walking, climbing, clinging and jumping
+---------------------------------------------------------------------------
+-- A monkey's body is columns x+1..x+6 and rows y..y+9 of the canvas.
+local function body_free(x, y)
+  if x + 1 < 0 or x + 6 >= CW or y < 0 or y + 9 >= GROUND_Y then return false end
+  for row = y, y + 9 do
+    for col = x + 1, x + 6 do
+      if solid(col, row) then return false end
+    end
+  end
+  return true
+end
+
+local function on_ground(m)
+  if m.y + 10 >= GROUND_Y then return true end
+  for col = m.x + 1, m.x + 6 do
+    if solid(col, m.y + 10) then return true end
+  end
+  return false
+end
+
+-- Monkeys can hang on to a wall they have climbed (the wall on the side
+-- they face). Falling past a wall doesn't count: only climbing grabs on.
+local function clinging(m)
+  if not m.cling then return false end
+  local col = m.face > 0 and m.x + 7 or m.x
+  for row = m.y, m.y + 9 do
+    if solid(col, row) then return true end
+  end
+  return false
+end
+
+local function supported(m)
+  return on_ground(m) or clinging(m)
+end
+
+-- One pixel of walking towards dir (-1 or 1): along the ground, up a small
+-- step, or, against a wall, climbing it. Returns its energy cost and how
+-- long it takes, or nil when there's no way on.
+local function walk_step(m, dir)
+  m.face = dir
+  if body_free(m.x + dir, m.y) then
+    m.x = m.x + dir
+    m.cling = false
+    return WALK_COST, WALK_MS
+  end
+  for up = 1, 3 do
+    if body_free(m.x + dir, m.y - up) then
+      m.x, m.y = m.x + dir, m.y - up
+      m.cling = false
+      return WALK_COST + up, WALK_MS
+    end
+  end
+  if body_free(m.x, m.y - 1) then
+    m.y = m.y - 1
+    m.cling = true
+    return CLIMB_COST, CLIMB_MS
+  end
+  return nil
+end
+
+-- A monkey whose ground (or wall) was blown away drops until it stands on
+-- something. Only depends on the city, so both badges agree.
 local function settle_monkeys()
   for i = 1, 2 do
     local m = monkeys[i]
     if m.alive then
       local fell = false
-      while m.y + 10 < GROUND_Y do
-        local under = false
-        for fx = m.x + 1, m.x + 6 do
-          if solid(fx, m.y + 10) then under = true break end
-        end
-        if under then break end
+      while not supported(m) and m.y + 10 < GROUND_Y do
         m.y = m.y + 1
+        m.cling = false
         fell = true
       end
       if fell then draw_monkey(i, false) end
@@ -775,6 +859,10 @@ end
 -- Plans one angle per tick (a coroutine), so the thinking never runs into
 -- the badge's per-callback instruction limit.
 local function plan()
+  local me_m, target_m = monkeys[2], monkeys[1]
+  me_m.face = (target_m.x > me_m.x) and 1 or -1
+  draw_monkey(2, false)
+  local face = me_m.face
   local w = choose_weapon()
   local wp = WEAPONS[w]
   local target = monkeys[1]
@@ -782,11 +870,12 @@ local function plan()
   local best, best_err = nil, math.huge
   local angles = wp.grav < 50 and { 10, 20, 30, 40, 50, 60 } or { 30, 40, 50, 60, 65, 70, 75 }
   for _, a in ipairs(angles) do
-    -- More power lands further left (towards the target): binary search.
+    -- Binary search on power for this angle.
     local lo, hi = 5, 100
     for _ = 1, 14 do
       local mid = (lo + hi) / 2
-      if landing_x(a, mid, wp, ty) > tx then lo = mid else hi = mid end
+      -- short of the target (on our side of it): more power
+      if (landing_x(a, mid, wp, ty) - tx) * face < 0 then lo = mid else hi = mid end
     end
     local p = (lo + hi) / 2
     local err = math.abs(landing_x(a, p, wp, ty) - tx)
@@ -850,7 +939,9 @@ local function local_throw()
   a.p = clamp(math.floor(power + 0.5), 1, 100)
   throw(turn, a.a, a.p, a.w)
   if mode == "duo" then
-    pending = { t = "th", g = game_id, n = shots, a = a.a, p = a.p, w = a.w }
+    local m = monkeys[turn]
+    pending = { t = "th", g = game_id, n = shots, a = a.a, p = a.p, w = a.w,
+      x = m.x, y = m.y, f = m.face, c = m.cling and 1 or 0 }
     send_throw()
   end
 end
@@ -858,6 +949,8 @@ end
 -- The other badge's throw number n (count of throws including it).
 local function remote_throw(m)
   if m.n == shots + 1 and state == "wait" then
+    local mk = monkeys[turn]
+    if m.x then mk.x, mk.y, mk.face, mk.cling = m.x, m.y, m.f, m.c == 1 end
     aim[turn].a, aim[turn].p, aim[turn].w = m.a, m.p, m.w or 1
     throw(turn, m.a, m.p, m.w or 1)
   elseif m.n == shots + 1 then
@@ -1038,6 +1131,13 @@ function on_mesh(from, m)
     elseif m.t == "ok" then
       if pending and m.n >= pending.n then pending = nil end
     end
+  elseif m.t == "mv" then
+    if mode == "duo" and from == peer and m.g == game_id and state == "wait" then
+      local mk = monkeys[turn]
+      mk.x, mk.y, mk.face = m.x, m.y, m.f
+      draw_monkey(turn, false)
+      last_heard = now
+    end
   elseif m.t == "bye" then
     if mode == "duo" and from == peer and m.g == game_id and state ~= "over" then
       peer = nil
@@ -1046,6 +1146,68 @@ function on_mesh(from, m)
       show_message("PLAYER LEFT", peer_name .. " quit the game")
       ui.hint("SELECT lobby   CANCEL menu")
     end
+  end
+end
+
+-- Two badges: let the other badge see us moving (only for show: the throw
+-- message carries the real position).
+local function tell_position(m)
+  if mode == "duo" and peer and now - moved_at >= 400 then
+    if radio_send(peer, { t = "mv", g = game_id, x = m.x, y = m.y, f = m.face }) then moved_at = now end
+  end
+end
+
+local function move_tick(ms)
+  local m = monkeys[turn]
+  local before_x, before_y = m.x, m.y
+  ms = math.min(ms, 100)
+  if jump then
+    -- In the air: fixed small steps, at most a pixel each way per step.
+    jump.t = jump.t + ms
+    while jump and jump.t >= STEP_MS do
+      jump.t = jump.t - STEP_MS
+      jump.vy = jump.vy + JUMP_G * STEP
+      jump.fx = jump.fx + jump.vx * STEP
+      jump.fy = jump.fy + jump.vy * STEP
+      local nx, ny = math.floor(jump.fx + 0.5), math.floor(jump.fy + 0.5)
+      if nx ~= m.x then
+        local d = nx > m.x and 1 or -1
+        if body_free(m.x + d, m.y) then m.x = m.x + d else jump.vx = 0 jump.fx = m.x end
+      end
+      if ny > m.y then
+        if body_free(m.x, m.y + 1) then m.y = m.y + 1 else jump = nil end
+      elseif ny < m.y then
+        if body_free(m.x, m.y - 1) then m.y = m.y - 1 else jump.vy = 0 jump.fy = m.y end
+      end
+    end
+  elseif not supported(m) then
+    -- Falling.
+    move_acc = move_acc + ms
+    while move_acc >= 1000 / FALL_SPEED and not supported(m) do
+      move_acc = move_acc - 1000 / FALL_SPEED
+      m.y = m.y + 1
+    end
+    if supported(m) then move_acc = 0 end
+  else
+    local k = has_keys and sys.keys() or {}
+    local dir = (k.right and not k.left) and 1 or ((k.left and not k.right) and -1 or 0)
+    if dir ~= 0 and energy > 0 then
+      move_acc = move_acc + ms
+      while move_acc >= WALK_MS and energy > 0 do
+        local cost, took = walk_step(m, dir)
+        if not cost then move_acc = 0 break end
+        energy = math.max(0, energy - cost)
+        move_acc = move_acc - took
+        if not supported(m) then break end     -- walked off an edge: fall
+      end
+    else
+      move_acc = 0
+    end
+  end
+  if m.x ~= before_x or m.y ~= before_y then
+    draw_monkey(turn, false)
+    tell_position(m)
+    update_hud()
   end
 end
 
@@ -1069,6 +1231,8 @@ function on_tick(ms)
     remote_throw(m)
   elseif state == "fly" then
     fly_tick(ms)
+  elseif state == "move" then
+    move_tick(ms)
   end
 end
 
@@ -1088,6 +1252,47 @@ function on_key(key, rep)
       open_menu()
     end
     return true
+  end
+
+  if key == "back" and (state == "aim" or state == "charge") then
+    if not rep and state == "aim" then        -- back to walking
+      state = "move"
+      ui.hint(MOVE_HINT)
+      update_hud()
+    end
+    return true
+  end
+
+  if state == "move" then
+    local m = monkeys[turn]
+    if key == "select" and not rep then
+      if supported(m) and not jump then
+        state = "aim"
+        ui.hint(aim_hint())
+        update_hud()
+      end
+      return true
+    elseif key == "up" and not rep then
+      if supported(m) and not jump and energy >= JUMP_COST then
+        energy = energy - JUMP_COST
+        m.cling = false
+        jump = { vx = m.face * JUMP_VX, vy = JUMP_VY, fx = m.x, fy = m.y, t = 0 }
+        update_hud()
+      end
+      return true
+    elseif key == "left" or key == "right" then
+      local dir = key == "right" and 1 or -1
+      if m.face ~= dir then
+        m.face = dir
+        draw_monkey(turn, false)
+        tell_position(m)
+      elseif not has_keys and supported(m) and energy > 0 then
+        local cost = walk_step(m, dir)               -- older badges: a step per press
+        if cost then energy = math.max(0, energy - cost) draw_monkey(turn, false) end
+      end
+      update_hud()
+      return true
+    end
   end
 
   if key == "back" then

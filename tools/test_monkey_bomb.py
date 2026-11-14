@@ -7,9 +7,10 @@
    Checks no Lua errors and every callback stays well under the badge's
    200 000-instruction limit (the CPU's planning is the heavy part).
 2. A two-badge match with 20% of radio messages dropped, with every
-   weapon in play. Checks both badges build the same skyline, every throw
-   leaves both cities pixel-for-pixel identical, and both agree on the
-   rounds and on every player's points.
+   weapon in play and the players walking, climbing and jumping. Checks
+   both badges build the same skyline, every throw leaves both cities
+   pixel-for-pixel identical with the monkeys in the same places, and both
+   agree on the rounds and on every player's points.
 """
 import json
 import os
@@ -48,7 +49,17 @@ def canvas_pixels(sim):
 
 
 def human_turn(sim, rnd):
-    """Aim with UP/DOWN, maybe switch weapon, then hold SELECT to charge and let go."""
+    """Walk/climb/jump a bit, then aim with UP/DOWN, maybe switch weapon, then
+    hold SELECT to charge and let go."""
+    if rnd.random() < 0.7:
+        sim.hold([rnd.choice(["left", "right"])])
+        sim.tick(30, rnd.randint(5, 40))
+        sim.hold([])
+        if rnd.random() < 0.3:
+            sim.press("up")                 # jump
+        sim.tick(30, 40)                    # land / finish falling
+    sim.press("select")                     # walking -> aiming
+    sim.tick(30, 1)
     angle_steps = rnd.randint(-10, 25)
     for _ in range(abs(angle_steps)):
         sim.press("up" if angle_steps > 0 else "down")
@@ -61,7 +72,12 @@ def human_turn(sim, rnd):
 
 
 def my_turn(sim, who="YOU:"):
-    return str(sim.M.hint).startswith("UP/DN aim") and who in hud_aim(sim) and "last" in hud_aim(sim)
+    return str(sim.M.hint).startswith("L/R walk") and any(t.startswith(who + " walk") for t in texts(sim))
+
+
+def monkey_spots(sim):
+    return sorted((int(o.x), int(o.y)) for o in sim.M.objects.values()
+                  if o.kind == "image" and o.visible and not o.removed and len(o.rows) == 10)
 
 
 def play_vs_cpu(level_row, rnd, max_ticks=20000):
@@ -70,15 +86,28 @@ def play_vs_cpu(level_row, rnd, max_ticks=20000):
     for _ in range(level_row - 1):
         sim.press("down")
     sim.press("select")
-    peak, throws = 0, 0
-    for _ in range(max_ticks):
+    throws = 0
+    # Measure every callback on its own: each tick, and each key press.
+    peaks = [take_count(sim)]
+    raw_tick, raw_press = sim.tick, sim.press
+
+    def tick(ms=30, n=1):
+        for _ in range(n):
+            take_count(sim)
+            raw_tick(ms)
+            peaks[0] = max(peaks[0], take_count(sim))
+
+    def press(key, rep=False):
         take_count(sim)
+        raw_press(key, rep)
+        peaks[0] = max(peaks[0], take_count(sim))
+    sim.tick, sim.press = tick, press
+    for _ in range(max_ticks):
         if my_turn(sim):
             human_turn(sim, rnd)
             throws += 1
-        peak = max(peak, take_count(sim))
         sim.tick(30)
-        peak = max(peak, take_count(sim))
+        peak = peaks[0]
         t = texts(sim)
         if "YOU WIN!" in t or "CPU WINS" in t:
             result = "YOU WIN!" if "YOU WIN!" in t else "CPU WINS"
@@ -145,9 +174,10 @@ def play_duo(rnd, loss=0.2, max_ticks=60000):
         tick()
         # Between throws (both waiting for someone to aim) the cities must match.
         if my_turn(a) != my_turn(b):
-            if "aiming" in hud_aim(a) or "aiming" in hud_aim(b):
+            if any("is aiming" in t for t in texts(a) + texts(b)):
                 pa, pb = canvas_pixels(a), canvas_pixels(b)
                 assert pa == pb, f"skylines differ after throw {throws}"
+                assert monkey_spots(a) == monkey_spots(b), f"monkeys differ: {monkey_spots(a)} / {monkey_spots(b)}"
                 checks += 1
         ta, tb = texts(a), texts(b)
         def won(t):
