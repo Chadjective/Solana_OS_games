@@ -756,7 +756,12 @@ end
 
 local function leave_duo()
   if peer then
-    radio_send(peer, { t = "bye", g = game_id })
+    -- Say goodbye three times: a lost "bye" would leave the other player
+    -- waiting for the connection to time out.
+    local to, bye = peer, { t = "bye", g = game_id }
+    radio_send(to, bye)
+    timer.after(300, function() radio_send(to, bye) end)
+    timer.after(700, function() radio_send(to, bye) end)
     peer = nil
   end
 end

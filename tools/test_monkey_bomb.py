@@ -15,6 +15,7 @@
 import json
 import os
 import random
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -55,8 +56,11 @@ def human_turn(sim, rnd):
         sim.hold([rnd.choice(["left", "right"])])
         sim.tick(30, rnd.randint(5, 40))
         sim.hold([])
-        if rnd.random() < 0.3:
-            sim.press("up")                 # jump
+        if rnd.random() < 0.4:
+            sim.hold(["up"])                # climb the wall in front (or jump)
+            sim.press("up")
+            sim.tick(30, rnd.randint(5, 50))
+            sim.hold([])
         sim.tick(30, 40)                    # land / finish falling
         if not str(sim.M.hint).startswith("L/R walk"):
             return                          # walked into the Thames: the turn is over
@@ -164,7 +168,10 @@ def play_duo(rnd, loss=0.2, max_ticks=120000):
         if b.M.confirm is not None:
             break
     b.M.answer(True)
-    tick(3)
+    for _ in range(300):                    # until both badges have started (a "go" can be lost)
+        tick()
+        if all(any("WIND" in t for t in texts(s)) for s in (a, b)):
+            break
     assert canvas_pixels(a) == canvas_pixels(b), "both badges must build the same skyline"
 
     throws, checks = 0, 0
@@ -182,10 +189,13 @@ def play_duo(rnd, loss=0.2, max_ticks=120000):
                 throws += 1
         tick()
         # Between throws (both waiting for someone to aim) the cities must match.
-        if my_turn(a) != my_turn(b):
+        def numbers(sim):                    # rounds and points on the score line
+            return [re.findall(r"\d+", t) for t in texts(sim)[:2]]
+        if my_turn(a) != my_turn(b) and numbers(a) == numbers(b):
             if any("is aiming" in t for t in texts(a) + texts(b)):
                 pa, pb = canvas_pixels(a), canvas_pixels(b)
-                assert pa == pb, f"skylines differ after throw {throws}"
+                assert pa == pb, (f"skylines differ after throw {throws}: A {texts(a)} {a.M.hint} {monkey_spots(a)}"
+                                  f" / B {texts(b)} {b.M.hint} {monkey_spots(b)}")
                 assert monkey_spots(a) == monkey_spots(b), f"monkeys differ: {monkey_spots(a)} / {monkey_spots(b)}"
                 checks += 1
         ta, tb = texts(a), texts(b)

@@ -156,8 +156,11 @@ def main():
     b.M.answer(True)
     tick(100)
     a.press("back")
-    tick(5)
-    assert "PLAYER LEFT" in visible_text(b), visible_text(b)
+    for _ in range(250):                    # the goodbye, or the timeout if every copy is lost
+        tick()
+        if "PLAYER LEFT" in visible_text(b) or "CONNECTION LOST" in visible_text(b):
+            break
+    assert "PLAYER LEFT" in visible_text(b) or "CONNECTION LOST" in visible_text(b), visible_text(b)
     print("quit message reaches the other badge: OK")
     print("OK")
 

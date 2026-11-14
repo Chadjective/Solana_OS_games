@@ -78,9 +78,12 @@ A turn-based throwing game over London, with a nod to the SMB community.
   through, such as the inside of the London Eye and the space under Tower
   Bridge.
 - **Move around before you throw.** Each turn starts in walk mode with an
-  energy bar. Walk along rooftops, drop into the gaps, and **climb** any wall
-  by walking into it (climbing costs double energy). Monkeys **cling** to a
-  wall they've climbed, so you can throw from the side of the Shard. **Jump**
+  energy bar (100 per turn). Walk along rooftops, drop into the gaps, and
+  **climb** any building: hold UP facing a wall (or walk into it) and your
+  monkey climbs, stepping onto the roof at the top. Climbing costs the same
+  energy as walking. Monkeys **cling** to the wall they're on, so you can
+  throw from the side of the Shard, and if the energy runs out halfway up,
+  your monkey stays hanging there and carries on climbing next turn. **Jump**
   to cross gaps. Your monkey throws the way it last faced, so you can climb
   past your opponent and throw back at them. When you're in a good spot,
   press SELECT to aim.
@@ -105,7 +108,6 @@ A turn-based throwing game over London, with a nod to the SMB community.
   | Rain | Throws are heavier and drop sooner |
   | Snow | Snow on the roofs, and walking or climbing costs extra energy |
   | Fog | Drifting fog banks hide parts of the city, and the aiming guide shows only its first two dots |
-  | Aurora (rare) | The northern lights ripple across the sky and the badge's LEDs shimmer green and purple. Just for looks |
 
 - **Pickups** lie on the rooftops, 3 per round. Walk into one to take it:
 
@@ -141,7 +143,7 @@ A turn-based throwing game over London, with a nod to the SMB community.
 
 ![Walking: the monkey leaves its roof, climbs onto Wembley's arch, and aims from there](docs/monkey-bomb-moving.png)
 
-![The northern lights over London](docs/monkey-bomb-aurora.png)
+![Climbing: the monkey walks to the foot of the Shard, then holds UP and climbs its glass face](docs/monkey-bomb-climbing.png)
 
 ![Weather and the Thames: rain, snow and fog rounds with the river and a bridge, and rounds without; health packs, crates and umbrellas on the rooftops](docs/monkey-bomb-weather.png)
 
@@ -149,9 +151,9 @@ A turn-based throwing game over London, with a nod to the SMB community.
 
 | | Walk mode (start of each turn) | Aim mode |
 |---|---|---|
-| LEFT/RIGHT | Walk, and climb when against a wall | Switch weapon |
-| UP | Jump | Aim higher |
-| DOWN | | Aim lower |
+| LEFT/RIGHT | Walk (walking into a wall also climbs it) | Switch weapon |
+| UP | **Hold to climb** the wall you're facing, stepping onto the roof at the top. Away from walls: jump | Aim higher |
+| DOWN | Climb back down while hanging on a wall | Aim lower |
 | SELECT | Switch to aim mode | **Hold** to fill the power meter, let go to throw |
 | CANCEL | Back to the menu | Back to walk mode |
 

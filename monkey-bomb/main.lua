@@ -28,10 +28,10 @@ local SAFE_STEPS = 30                -- a throw can't hit its thrower for this m
 local CHARGE_MS = 1500               -- holding SELECT from 0 to full power
 
 -- Moving about: each turn starts with some energy to walk, climb and jump.
-local ENERGY = 70                    -- per turn
+local ENERGY = 100                   -- per turn
 local MV = {
-  WALK_COST = 1, CLIMB_COST = 2, JUMP_COST = 8,   -- energy
-  WALK_MS = 40, CLIMB_MS = 70,                    -- ms per pixel walked / climbed
+  WALK_COST = 1, CLIMB_COST = 1, JUMP_COST = 8,   -- energy
+  WALK_MS = 40, CLIMB_MS = 55,                    -- ms per pixel walked / climbed
   FALL_SPEED = 90,                                -- canvas px/s
   JUMP_VX = 38, JUMP_VY = -62, JUMP_G = 170,
 }
@@ -104,7 +104,7 @@ local ART = {
   coconut = { "..y..", ".ccc.", "cdcdc", "ccccc", "ccdcc", ".ccc." },
   health = { "wwwwww", "wwrrww", "wrrrrw", "wrrrrw", "wwrrww", "wwwwww" },
   umbrella = { "..mm..", ".mmmm.", "mmmmmm", "...k..", "...k..", "..kk.." },
-  crate = { "dddddd", "dcpgcd", "dcccdd", "ddcccd", "dcgpcd", "dddddd" },
+  crate = { "oooooo", "oyyyyo", "opgpgo", "ogpgpo", "oyyyyo", "oooooo" },
 }
 local ART_PAL = { palette = { q = 0x9AA0A6, c = 0x6B4423, d = 0x3B2412, r = 0xE5383B }, scale = SCALE }
 
@@ -161,8 +161,7 @@ local city = ui.canvas(0, 0, CW, CH, { scale = SCALE, color = "bg" })
 -- Colours as the canvas stores them (the screen has 65,536 colours, so a
 -- colour can come back slightly different): anything in EMPTY is sky.
 local EMPTY = {}
-for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE, sky.WATER, sky.WATER_LIGHT,
-    sky.AURORA[1], sky.AURORA[2], sky.AURORA[3], sky.AURORA[4] }) do
+for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE, sky.WATER, sky.WATER_LIGHT }) do
   city:pixel(0, 0, c)
   EMPTY[city:get(0, 0)] = true
 end
@@ -299,7 +298,7 @@ local last_heard, last_keepalive = 0, 0
 local sent_at = { -100000, -100000, -100000, -100000 }
 
 -- Menus
-local menu, menu_title, menu_panel = nil, nil, nil
+local menu, menu_title, menu_panel, menu_back = nil, nil, nil, nil
 -- The two-badge lobby: its screen objects, who we've heard, who we invited.
 local LB = { list = nil, title = nil, info = nil, ids = {}, seen = {}, invited = nil, asking = nil, hello_timer = nil }
 
@@ -425,18 +424,9 @@ local function hide_weather()
   for _, f in ipairs(fogs) do f:show(false) end
 end
 
--- Moves the rain, snow and fog along, and makes the LEDs shimmer under the
--- northern lights (just for show).
+-- Moves the rain, snow and fog along (just for show).
 local function weather_tick(ms)
-  if weather == "aurora" and has_led and state ~= "over" and state ~= "between" then
-    for i = 1, led.count do
-      local t = now / 900 + i * 0.7
-      local g = math.floor(60 + 60 * math.sin(t))
-      local b = math.floor(30 + 30 * math.sin(t * 0.7 + 1))
-      local r = math.floor(25 + 25 * math.sin(t * 0.5 + 2))
-      led.set(i, math.max(0, r), math.max(0, g), math.max(0, b))
-    end
-  elseif weather == "rain" or weather == "snow" then
+  if weather == "rain" or weather == "snow" then
     local fall = weather == "rain" and 0.35 or 0.05
     local drift = wind * (weather == "rain" and 0.01 or 0.006)
     for _, d in ipairs(drops) do
@@ -522,7 +512,7 @@ end
 local function update_hud()
   hud_l:text(player_name(1) .. " " .. wins[1] .. "  " .. points[1] .. "pt")
   hud_r:text(points[2] .. "pt  " .. wins[2] .. " " .. player_name(2))
-  local wx = weather == "clear" and "" or ((weather == "aurora" and "AURORA" or weather:upper()) .. "  ")
+  local wx = weather == "clear" and "" or (weather:upper() .. "  ")
   if wind == 0 then
     hud_wind:text(wx .. "WIND calm")
   else
@@ -553,7 +543,7 @@ local function place_items(seed)
   items = {}
   local starts = { town.monkeys[1].x, town.monkeys[2].x }
   local tries = 0
-  while #items < ITEMS_PER_ROUND and tries < 30 do
+  while #items < ITEMS_PER_ROUND and tries < 14 do
     tries = tries + 1
     local col = r.int(6, CW - 12)
     local ok = math.abs(col - starts[1]) > 10 and math.abs(col - starts[2]) > 10
@@ -563,12 +553,10 @@ local function place_items(seed)
     end
     if ok then
       local top = nil
+      -- The first solid row under two points of the spot (checking every
+      -- pixel of every candidate cost too much of the start-of-round budget).
       for row = 4, GROUND_Y - 1 do
-        local hit = false
-        for c = col, col + 5 do
-          if solid(c, row) then hit = true break end
-        end
-        if hit then top = row break end
+        if solid(col + 1, row) or solid(col + 4, row) then top = row break end
       end
       if top and top > 24 then             -- not on a spire tip, under the score
         local kind = ITEM_KINDS[r.int(1, #ITEM_KINDS)]
@@ -594,7 +582,7 @@ local function aim_hint()
   return "UP/DN aim  L/R weapon  SELECT x2 throw  CANCEL walk"
 end
 
-local MOVE_HINT = "L/R walk + climb   UP jump   SELECT aim"
+local MOVE_HINT = "L/R walk  UP climb/jump  DN down  SELECT aim"
 
 local function begin_turn()
   local who = controller(turn)
@@ -731,6 +719,37 @@ end
 
 local function supported(m)
   return on_ground(m) or clinging(m)
+end
+
+-- Is there a wall right in front of the monkey (the way it faces)?
+local function wall_ahead(m)
+  local col = m.face > 0 and m.x + 7 or m.x
+  for row = m.y, m.y + 9 do
+    if solid(col, row) then return true end
+  end
+  return false
+end
+
+-- One pixel of climbing: v = -1 up the wall in front, 1 down it. At the top
+-- the monkey steps over onto the roof. Hanging on stays put between turns,
+-- so a tall tower can be climbed over several turns. Returns the energy
+-- cost and how long it takes, or nil when there's no way on.
+local function climb_step(m, v)
+  local extra = weather == "snow" and WX.SNOW_EXTRA or 0
+  if v < 0 then
+    if not body_free(m.x, m.y - 1) then return nil end     -- a ledge overhead
+    m.y = m.y - 1
+    m.cling = true
+    if not wall_ahead(m) and body_free(m.x + m.face, m.y) then
+      m.x = m.x + m.face                                   -- over the top, onto the roof
+      m.cling = false
+    end
+    return MV.CLIMB_COST + extra, MV.CLIMB_MS
+  end
+  if not body_free(m.x, m.y + 1) then return nil end       -- reached the ground or a ledge
+  m.y = m.y + 1
+  m.cling = wall_ahead(m)
+  return MV.CLIMB_COST, MV.CLIMB_MS
 end
 
 -- One pixel of walking towards dir (-1 or 1): along the ground, up a small
@@ -1359,8 +1378,15 @@ local function open_menu()
   set_play_visible(true)
   for _, l in ipairs(hud) do l:show(false) end
   power_bar:show(false)
+  for i = 1, 2 do
+    local m = monkeys[i]
+    m.bar:show(false) m.bar_bg:show(false) m.brolly:show(false)
+  end
   menu_panel = ui.rect(0, 0, W, 36, { color = sky.SKY })
   menu_title = ui.label(0, 8, "SOLANA MONKEY BOMB", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
+  -- A solid panel behind the list: the list's rows are see-through on the
+  -- badge, and the skyline behind them made the lower options hard to read.
+  menu_back = ui.rect(34, 46, W - 68, 156, { color = 0x15102A, radius = 8, border = "border" })
   menu = ui.list(40, 52, W - 80, 144, menu_items(), {
     on_select = function(i)
       menu_i = i
@@ -1388,6 +1414,7 @@ function close_menu()
   if menu then menu:remove() menu = nil end
   if menu_title then menu_title:remove() menu_title = nil end
   if menu_panel then menu_panel:remove() menu_panel = nil end
+  if menu_back then menu_back:remove() menu_back = nil end
 end
 
 local function refresh_lobby()
@@ -1552,12 +1579,23 @@ local function move_tick(ms, forced_dir)
     end
     if supported(m) then move_acc = 0 end
   else
-    local dir = forced_dir
+    local dir, vdir = forced_dir, 0
     if dir == nil then
       local k = has_keys and sys.keys() or {}
       dir = (k.right and not k.left) and 1 or ((k.left and not k.right) and -1 or 0)
+      -- UP against a wall climbs it; DOWN climbs back down while hanging on.
+      if dir == 0 and k.up and not k.down and wall_ahead(m) then vdir = -1 end
+      if dir == 0 and k.down and not k.up and m.cling then vdir = 1 end
     end
-    if dir ~= 0 and energy > 0 then
+    if vdir ~= 0 and energy > 0 then
+      move_acc = move_acc + ms
+      while move_acc >= MV.CLIMB_MS and energy > 0 do
+        local cost, took = climb_step(m, vdir)
+        if not cost then move_acc = 0 break end
+        energy = math.max(0, energy - cost)
+        move_acc = move_acc - took
+      end
+    elseif dir ~= 0 and energy > 0 then
       move_acc = move_acc + ms
       while move_acc >= MV.WALK_MS and energy > 0 do
         local cost, took = walk_step(m, dir)
@@ -1622,7 +1660,12 @@ end
 
 local function leave_duo()
   if peer then
-    radio_send(peer, { t = "bye", g = game_id })
+    -- Say goodbye three times: a lost "bye" would leave the other player
+    -- waiting for the connection to time out.
+    local to, bye = peer, { t = "bye", g = game_id }
+    radio_send(to, bye)
+    timer.after(300, function() radio_send(to, bye) end)
+    timer.after(700, function() radio_send(to, bye) end)
     peer = nil
   end
 end
@@ -1654,6 +1697,20 @@ function on_key(key, rep)
         state = "aim"
         ui.hint(aim_hint())
         update_hud()
+      end
+      return true
+    elseif key == "up" and wall_ahead(m) then
+      -- Climbing is handled in move_tick while UP is held; older badges
+      -- without sys.keys climb a pixel per press (and per auto-repeat).
+      if not has_keys and supported(m) and energy > 0 then
+        local cost = climb_step(m, -1)
+        if cost then energy = math.max(0, energy - cost) draw_monkey(turn, false) update_hud() end
+      end
+      return true
+    elseif key == "down" then
+      if not has_keys and m.cling and energy > 0 then
+        local cost = climb_step(m, 1)
+        if cost then energy = math.max(0, energy - cost) draw_monkey(turn, false) update_hud() end
       end
       return true
     elseif key == "up" and not rep then
