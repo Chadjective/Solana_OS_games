@@ -161,7 +161,8 @@ local city = ui.canvas(0, 0, CW, CH, { scale = SCALE, color = "bg" })
 -- Colours as the canvas stores them (the screen has 65,536 colours, so a
 -- colour can come back slightly different): anything in EMPTY is sky.
 local EMPTY = {}
-for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE, sky.WATER, sky.WATER_LIGHT }) do
+for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE, sky.WATER, sky.WATER_LIGHT,
+    sky.AURORA[1], sky.AURORA[2], sky.AURORA[3], sky.AURORA[4] }) do
   city:pixel(0, 0, c)
   EMPTY[city:get(0, 0)] = true
 end
@@ -424,9 +425,18 @@ local function hide_weather()
   for _, f in ipairs(fogs) do f:show(false) end
 end
 
--- Moves the rain, snow and fog along (just for show).
+-- Moves the rain, snow and fog along, and makes the LEDs shimmer under the
+-- northern lights (just for show).
 local function weather_tick(ms)
-  if weather == "rain" or weather == "snow" then
+  if weather == "aurora" and has_led and state ~= "over" and state ~= "between" then
+    for i = 1, led.count do
+      local t = now / 900 + i * 0.7
+      local g = math.floor(60 + 60 * math.sin(t))
+      local b = math.floor(30 + 30 * math.sin(t * 0.7 + 1))
+      local r = math.floor(25 + 25 * math.sin(t * 0.5 + 2))
+      led.set(i, math.max(0, r), math.max(0, g), math.max(0, b))
+    end
+  elseif weather == "rain" or weather == "snow" then
     local fall = weather == "rain" and 0.35 or 0.05
     local drift = wind * (weather == "rain" and 0.01 or 0.006)
     for _, d in ipairs(drops) do
@@ -512,7 +522,7 @@ end
 local function update_hud()
   hud_l:text(player_name(1) .. " " .. wins[1] .. "  " .. points[1] .. "pt")
   hud_r:text(points[2] .. "pt  " .. wins[2] .. " " .. player_name(2))
-  local wx = weather == "clear" and "" or (weather:upper() .. "  ")
+  local wx = weather == "clear" and "" or ((weather == "aurora" and "AURORA" or weather:upper()) .. "  ")
   if wind == 0 then
     hud_wind:text(wx .. "WIND calm")
   else

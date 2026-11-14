@@ -105,6 +105,7 @@ A turn-based throwing game over London, with a nod to the SMB community.
   | Rain | Throws are heavier and drop sooner |
   | Snow | Snow on the roofs, and walking or climbing costs extra energy |
   | Fog | Drifting fog banks hide parts of the city, and the aiming guide shows only its first two dots |
+  | Aurora (rare) | The northern lights ripple across the sky and the badge's LEDs shimmer green and purple. Just for looks |
 
 - **Pickups** lie on the rooftops, 3 per round. Walk into one to take it:
 
@@ -139,6 +140,8 @@ A turn-based throwing game over London, with a nod to the SMB community.
   between badges far apart through a server "bridge".
 
 ![Walking: the monkey leaves its roof, climbs onto Wembley's arch, and aims from there](docs/monkey-bomb-moving.png)
+
+![The northern lights over London](docs/monkey-bomb-aurora.png)
 
 ![Weather and the Thames: rain, snow and fog rounds with the river and a bridge, and rounds without; health packs, crates and umbrellas on the rooftops](docs/monkey-bomb-weather.png)
 
@@ -201,6 +204,10 @@ These run on a computer, not on the badge.
   pixel-for-pixel identical with the monkeys in the same places, that both
   agree on rounds and points, and that every step stays well under the
   badge's CPU limit.
+- `python3 tools/check_lua55.py` looks for the two things the badge's Lua
+  5.5 refuses but these tools' Lua 5.4 accepts (changing a loop's counter
+  inside the loop, and `global` as a name). The app store compiles every
+  file and refuses a version that doesn't, so run this before submitting.
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
 
 The tools need `pip install lupa pillow`. The stand-in badge only approximates
