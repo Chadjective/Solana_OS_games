@@ -8,6 +8,7 @@ This is a rough preview for development only. The real test is "Try in
 emulator" on the badge site, then "Run on badge".
 """
 import os
+import random
 import sys
 
 from lupa import lua54
@@ -74,6 +75,8 @@ class Sim:
         self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
         self.M = self.lua.eval(f'dofile("{os.path.join(HERE, "badge_mock.lua")}")')
         self.M.make_canvas = Canvas
+        # Repeatable runs: seed the game's math.random from Python's random.
+        self.lua.execute(f"math.randomseed({random.randint(1, 2**30)})")
         self.M.run(os.path.join(HERE, "..", app))
         self.g = self.lua.globals()
 

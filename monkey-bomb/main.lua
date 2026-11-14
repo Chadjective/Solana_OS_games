@@ -28,10 +28,10 @@ local SAFE_STEPS = 30                -- a throw can't hit its thrower for this m
 local CHARGE_MS = 1500               -- holding SELECT from 0 to full power
 
 -- Moving about: each turn starts with some energy to walk, climb and jump.
-local ENERGY = 70                    -- per turn
+local ENERGY = 100                   -- per turn
 local MV = {
-  WALK_COST = 1, CLIMB_COST = 2, JUMP_COST = 8,   -- energy
-  WALK_MS = 40, CLIMB_MS = 70,                    -- ms per pixel walked / climbed
+  WALK_COST = 1, CLIMB_COST = 1, JUMP_COST = 8,   -- energy
+  WALK_MS = 40, CLIMB_MS = 55,                    -- ms per pixel walked / climbed
   FALL_SPEED = 90,                                -- canvas px/s
   JUMP_VX = 38, JUMP_VY = -62, JUMP_G = 170,
 }
@@ -582,7 +582,7 @@ local function aim_hint()
   return "UP/DN aim  L/R weapon  SELECT x2 throw  CANCEL walk"
 end
 
-local MOVE_HINT = "L/R walk + climb   UP jump   SELECT aim"
+local MOVE_HINT = "L/R walk  UP climb/jump  DN down  SELECT aim"
 
 local function begin_turn()
   local who = controller(turn)
@@ -719,6 +719,37 @@ end
 
 local function supported(m)
   return on_ground(m) or clinging(m)
+end
+
+-- Is there a wall right in front of the monkey (the way it faces)?
+local function wall_ahead(m)
+  local col = m.face > 0 and m.x + 7 or m.x
+  for row = m.y, m.y + 9 do
+    if solid(col, row) then return true end
+  end
+  return false
+end
+
+-- One pixel of climbing: v = -1 up the wall in front, 1 down it. At the top
+-- the monkey steps over onto the roof. Hanging on stays put between turns,
+-- so a tall tower can be climbed over several turns. Returns the energy
+-- cost and how long it takes, or nil when there's no way on.
+local function climb_step(m, v)
+  local extra = weather == "snow" and WX.SNOW_EXTRA or 0
+  if v < 0 then
+    if not body_free(m.x, m.y - 1) then return nil end     -- a ledge overhead
+    m.y = m.y - 1
+    m.cling = true
+    if not wall_ahead(m) and body_free(m.x + m.face, m.y) then
+      m.x = m.x + m.face                                   -- over the top, onto the roof
+      m.cling = false
+    end
+    return MV.CLIMB_COST + extra, MV.CLIMB_MS
+  end
+  if not body_free(m.x, m.y + 1) then return nil end       -- reached the ground or a ledge
+  m.y = m.y + 1
+  m.cling = wall_ahead(m)
+  return MV.CLIMB_COST, MV.CLIMB_MS
 end
 
 -- One pixel of walking towards dir (-1 or 1): along the ground, up a small
@@ -1548,12 +1579,23 @@ local function move_tick(ms, forced_dir)
     end
     if supported(m) then move_acc = 0 end
   else
-    local dir = forced_dir
+    local dir, vdir = forced_dir, 0
     if dir == nil then
       local k = has_keys and sys.keys() or {}
       dir = (k.right and not k.left) and 1 or ((k.left and not k.right) and -1 or 0)
+      -- UP against a wall climbs it; DOWN climbs back down while hanging on.
+      if dir == 0 and k.up and not k.down and wall_ahead(m) then vdir = -1 end
+      if dir == 0 and k.down and not k.up and m.cling then vdir = 1 end
     end
-    if dir ~= 0 and energy > 0 then
+    if vdir ~= 0 and energy > 0 then
+      move_acc = move_acc + ms
+      while move_acc >= MV.CLIMB_MS and energy > 0 do
+        local cost, took = climb_step(m, vdir)
+        if not cost then move_acc = 0 break end
+        energy = math.max(0, energy - cost)
+        move_acc = move_acc - took
+      end
+    elseif dir ~= 0 and energy > 0 then
       move_acc = move_acc + ms
       while move_acc >= MV.WALK_MS and energy > 0 do
         local cost, took = walk_step(m, dir)
@@ -1618,7 +1660,12 @@ end
 
 local function leave_duo()
   if peer then
-    radio_send(peer, { t = "bye", g = game_id })
+    -- Say goodbye three times: a lost "bye" would leave the other player
+    -- waiting for the connection to time out.
+    local to, bye = peer, { t = "bye", g = game_id }
+    radio_send(to, bye)
+    timer.after(300, function() radio_send(to, bye) end)
+    timer.after(700, function() radio_send(to, bye) end)
     peer = nil
   end
 end
@@ -1650,6 +1697,20 @@ function on_key(key, rep)
         state = "aim"
         ui.hint(aim_hint())
         update_hud()
+      end
+      return true
+    elseif key == "up" and wall_ahead(m) then
+      -- Climbing is handled in move_tick while UP is held; older badges
+      -- without sys.keys climb a pixel per press (and per auto-repeat).
+      if not has_keys and supported(m) and energy > 0 then
+        local cost = climb_step(m, -1)
+        if cost then energy = math.max(0, energy - cost) draw_monkey(turn, false) update_hud() end
+      end
+      return true
+    elseif key == "down" then
+      if not has_keys and m.cling and energy > 0 then
+        local cost = climb_step(m, 1)
+        if cost then energy = math.max(0, energy - cost) draw_monkey(turn, false) update_hud() end
       end
       return true
     elseif key == "up" and not rep then

@@ -146,9 +146,9 @@ A turn-based throwing game over London, with a nod to the SMB community.
 
 | | Walk mode (start of each turn) | Aim mode |
 |---|---|---|
-| LEFT/RIGHT | Walk, and climb when against a wall | Switch weapon |
-| UP | Jump | Aim higher |
-| DOWN | | Aim lower |
+| LEFT/RIGHT | Walk (walking into a wall also climbs it) | Switch weapon |
+| UP | **Hold to climb** the wall you're facing, stepping onto the roof at the top. Away from walls: jump | Aim higher |
+| DOWN | Climb back down while hanging on a wall | Aim lower |
 | SELECT | Switch to aim mode | **Hold** to fill the power meter, let go to throw |
 | CANCEL | Back to the menu | Back to walk mode |
 
