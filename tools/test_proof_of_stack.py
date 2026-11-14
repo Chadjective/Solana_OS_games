@@ -39,6 +39,39 @@ for cells, n, _, fixed in SHAPES:
     ROT.append(r)
 
 
+# Which way gravity points, read off the hint bar, and the buttons for it.
+KEYS = {
+    "down": dict(minus="left", plus="right", turn="up"),
+    "up": dict(minus="left", plus="right", turn="down"),
+    "right": dict(minus="up", plus="down", turn="left"),
+    "left": dict(minus="up", plus="down", turn="right"),
+}
+
+
+def orientation(sim):
+    h = str(sim.M.hint)
+    if "UP rotate" in h:
+        return "down"
+    if "DN rotate" in h:
+        return "up"
+    if "LEFT rotate" in h:
+        return "right"
+    if "RIGHT rotate" in h:
+        return "left"
+    return "down"
+
+
+def screen_cell(orient, c, r):
+    """Where logical cell (column c, row r along gravity) is on the screen."""
+    if orient == "down":
+        return c, r
+    if orient == "up":
+        return c, ROWS - 1 - r
+    if orient == "right":
+        return r, c
+    return ROWS - 1 - r, c
+
+
 def texts(sim):
     return [str(o.txt) for o in sim.M.objects.values() if o.kind == "label" and o.visible and not o.removed]
 
@@ -68,11 +101,13 @@ class Bot:
 
     def read_grid(self):
         """Locked cells only: the falling piece is left out (it's at its spawn spot)."""
-        cv = canvas(self.sim, COLS * CELL, ROWS * CELL).buf
+        o = orientation(self.sim)
+        cv = self.board(o)
         grid = [[False] * COLS for _ in range(ROWS)]
         for r in range(ROWS):
             for c in range(COLS):
-                col = cv.get(c * CELL + 2, r * CELL + 2)
+                sx, sy = screen_cell(o, c, r)
+                col = cv.get(sx * CELL + 2, sy * CELL + 2)
                 # empty cells show a dot, ghost cells the background
                 grid[r][c] = col not in (self.sim.M.rgb565(0x221B3E), self.sim.M.rgb565(0x0E0B1E), None)
         if self.current is not None:
@@ -82,6 +117,11 @@ class Bot:
                 if 0 <= y0 + y < ROWS:
                     grid[y0 + y][3 + x] = False
         return grid
+
+    def board(self, o):
+        if o in ("down", "up"):
+            return canvas(self.sim, COLS * CELL, ROWS * CELL).buf
+        return canvas(self.sim, ROWS * CELL, COLS * CELL).buf
 
     @staticmethod
     def fits(grid, k, r, x, y):
@@ -138,19 +178,20 @@ class Bot:
     def play_piece(self):
         """Call when a new piece has just appeared."""
         k = self.current
+        keys = KEYS[orientation(self.sim)]
         grid = self.read_grid()
         r, x = self.best_move(grid, k)
         for _ in range(r):
-            self.sim.press("up")
+            self.sim.press(keys["turn"])
         # after rotating at the spawn spot the piece is still at x = 3 (no kick needed at the top)
         dx = x - 3
         for _ in range(abs(dx)):
-            self.tap("right" if dx > 0 else "left")
+            self.tap(keys["plus"] if dx > 0 else keys["minus"])
         if self.playing():                  # the game may have ended meanwhile
             self.sim.press("select")
 
     def playing(self):
-        return str(self.sim.M.hint).startswith("L/R move")
+        return "SELECT drop" in str(self.sim.M.hint)
 
     def step(self):
         """One tick of watching: plays a piece whenever the NEXT box changes."""
@@ -171,10 +212,12 @@ class Bot:
         return False
 
     def first_piece_kind(self):
-        cv = canvas(self.sim, COLS * CELL, ROWS * CELL).buf
+        o = orientation(self.sim)
+        cv = self.board(o)
         for r in range(3):
             for c in range(COLS):
-                k = self.base.get(cv.get(c * CELL + 2, r * CELL + 2))
+                sx, sy = screen_cell(o, c, r)
+                k = self.base.get(cv.get(sx * CELL + 2, sy * CELL + 2))
                 if k is not None:
                     return k
         return None
@@ -267,7 +310,7 @@ def start_versus(loss):
     b.M.answer(True)
     for _ in range(300):
         tick()
-        if all(str(s.M.hint).startswith("L/R move") for s in (a, b)):
+        if all("SELECT drop" in str(s.M.hint) for s in (a, b)):
             break
     return a, b, tick, stats, game
 
@@ -287,6 +330,36 @@ def spam_check():
     print("spam: 3 spam rows sent -> 3 grey rows rose on the other board")
 
 
+def clusters_check(shots_dir=None):
+    """A strong bot plays Marathon through every cluster: gravity turns from
+    down (Mainnet) to sideways (Devnet), up (Testnet), then every epoch
+    (Localnet), and the bot keeps finalizing blocks in each."""
+    sim = Sim("proof-of-stack")
+    sim.press("select")
+    bot = Bot(sim, 1.0, random.Random(11))
+    seen, order = {}, []
+    for _ in range(400000):
+        bot.step()
+        sim.tick(30)
+        t = texts(sim)
+        cluster = t[1] if len(t) > 1 else ""
+        o = orientation(sim)
+        key = (cluster, o)
+        if cluster in ("MAINNET", "DEVNET", "TESTNET", "LOCALNET") and key not in seen:
+            seen[key] = value(sim, "BLOCKS")
+            order.append(key)
+            if shots_dir:
+                sim.render(os.path.join(shots_dir, f"cluster-{cluster}-{o}.png"))
+        if len({k[1] for k in seen if k[0] == "LOCALNET"}) >= 4 or "BLOCKSPACE FULL" in t:
+            break
+    print("clusters: " + ", ".join(f"{c} ({o}) from block {b}" for (c, o), b in
+                                     sorted(seen.items(), key=lambda kv: int(kv[1] or 0))))
+    names = [c for c, _ in order]
+    assert names[:4] == ["MAINNET", "DEVNET", "TESTNET", "LOCALNET"], order
+    assert {o for c, o in order if c == "LOCALNET"} == {"down", "right", "up", "left"}, order
+    return sim
+
+
 def main():
     random.seed(3)
 
@@ -304,6 +377,7 @@ def main():
     assert int(value(sim, "BLOCKS")) > 0 and int(value(sim, "EPOCH")) >= 1
     assert peak < BUDGET * 0.5
 
+    clusters_check()
     spam_check()
 
     # Versus: a strong bot against a weaker one, 15% of messages lost.

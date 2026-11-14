@@ -10,8 +10,15 @@
 -- as you can) and Versus on two badges over the mesh radio, where clearing
 -- rows sends spam transactions (garbage rows) to the other player.
 --
--- Controls: LEFT/RIGHT move, UP rotate, DOWN soft drop, SELECT hard drop
--- (a "priority fee": extra lamports), CANCEL quit.
+-- Cluster switch: as the epochs go by the game moves between Solana's
+-- clusters, and gravity turns with it. Mainnet (epochs 1-3): transactions
+-- fall down. Devnet (4-6): they slide in sideways. Testnet (7-9): they rise.
+-- Localnet (10+): gravity turns every epoch. The rules stay the same: the
+-- board is simply drawn turned, and the buttons turn with it.
+--
+-- Controls (Mainnet): LEFT/RIGHT move, UP rotate, DOWN soft drop, SELECT
+-- hard drop (a "priority fee": extra lamports), CANCEL quit. On other
+-- clusters the arrows follow gravity (the hint bar shows which is which).
 
 local W, H = ui.W, ui.H                  -- 320 x 218
 local COLS, ROWS = 10, 20
@@ -68,6 +75,33 @@ for i, s in ipairs(SHAPES) do COLORS[i] = { s.color, shade(s.color, 1.45), shade
 COLORS[8] = { GARBAGE, shade(GARBAGE, 1.4), shade(GARBAGE, 0.6) }
 COLORS[9] = { 0xFFFFFF, 0xFFFFFF, 0xDDDDDD }   -- a finalized row, flashing
 
+-- The clusters, and which way transactions fall on each: "down", "right"
+-- (they come in from the left), "up" (they rise) or "left".
+local CLUSTERS = {
+  { name = "MAINNET", dir = "down", color = 0x14F195 },
+  { name = "DEVNET", dir = "right", color = 0x00C2FF },
+  { name = "TESTNET", dir = "up", color = 0xEB54BC },
+  { name = "LOCALNET", dir = nil, color = 0xFFD84D },   -- turns every epoch
+}
+local LOCAL_TURN = { "down", "right", "up", "left" }
+local function cluster_of(ep)
+  local c = CLUSTERS[math.min(4, (ep - 1) // 3 + 1)]
+  return c, c.dir or LOCAL_TURN[(ep - 10) % 4 + 1]
+end
+
+-- For each direction: which button moves the piece across (-1 / +1), which
+-- one is the soft drop and which one rotates, and the hint bar text.
+local KEYS = {
+  down = { minus = "left", plus = "right", soft = "down", turn = "up",
+    hint = "L/R move  UP rotate  DN soft  SELECT drop" },
+  up = { minus = "left", plus = "right", soft = "up", turn = "down",
+    hint = "L/R move  DN rotate  UP soft  SELECT drop" },
+  right = { minus = "up", plus = "down", soft = "right", turn = "left",
+    hint = "U/D move  LEFT rotate  RIGHT soft  SELECT drop" },
+  left = { minus = "up", plus = "down", soft = "left", turn = "right",
+    hint = "U/D move  RIGHT rotate  LEFT soft  SELECT drop" },
+}
+
 -- The eight ideas Solana was built on, shown as blocks are finalized.
 local INNOVATIONS = { "PROOF OF HISTORY", "TOWER BFT", "TURBINE", "GULF STREAM",
   "SEALEVEL", "PIPELINING", "CLOUDBREAK", "ARCHIVERS" }
@@ -91,7 +125,9 @@ end
 ---------------------------------------------------------------------------
 ui.bg(0x0B0B14)
 local frame = ui.rect(BX - 2, BY - 1, COLS * CELL * 2 + 4, ROWS * CELL * 2 + 2, { color = 0x2A2350, radius = 2 })
-local board = ui.canvas(BX, BY, COLS * CELL, ROWS * CELL, { scale = 2, color = "bg" })
+-- Two boards: upright (gravity down or up) and sideways (right or left).
+local board_v = ui.canvas(BX, BY, COLS * CELL, ROWS * CELL, { scale = 2, color = "bg" })
+local board_h = ui.canvas(112, 52, ROWS * CELL, COLS * CELL, { scale = 2, color = "bg" })
 local next_cv = ui.canvas(246, 22, 4 * CELL, 2 * CELL, { scale = 2, color = "bg" })
 local peer_cv = ui.canvas(251, 118, COLS, ROWS, { scale = 3, color = "bg" })
 
@@ -99,12 +135,13 @@ local function lab(x, y, text, size, color, w, align)
   return ui.label(x, y, text, { size = size, color = color, w = w, align = align })
 end
 local L = {
-  title = lab(4, 4, "PROOF OF STACK", 12, 0x14F195, 102, "left"),
-  k1 = lab(4, 26, "LAMPORTS", 12, "dim"), v1 = lab(4, 40, "0", 14, 0xFFFFFF),
-  k2 = lab(4, 62, "BLOCKS", 12, "dim"), v2 = lab(4, 76, "0", 14, 0xFFFFFF),
-  k3 = lab(4, 98, "EPOCH", 12, "dim"), v3 = lab(4, 112, "1", 14, 0xFFFFFF),
-  k4 = lab(4, 134, "SLOT", 12, "dim"), v4 = lab(4, 148, "0", 14, 0xFFFFFF),
-  k5 = lab(4, 170, "TPS", 12, "dim"), v5 = lab(4, 184, "0", 14, 0xFFFFFF),
+  title = lab(4, 2, "PROOF OF STACK", 12, 0xFFFFFF, 102, "left"),
+  cluster = lab(4, 16, "MAINNET", 12, 0x14F195, 102, "left"),
+  k1 = lab(4, 34, "LAMPORTS", 12, "dim"), v1 = lab(4, 46, "0", 14, 0xFFFFFF),
+  k2 = lab(4, 66, "BLOCKS", 12, "dim"), v2 = lab(4, 78, "0", 14, 0xFFFFFF),
+  k3 = lab(4, 98, "EPOCH", 12, "dim"), v3 = lab(4, 110, "1", 14, 0xFFFFFF),
+  k4 = lab(4, 130, "SLOT", 12, "dim"), v4 = lab(4, 142, "0", 14, 0xFFFFFF),
+  k5 = lab(4, 162, "TPS", 12, "dim"), v5 = lab(4, 174, "0", 14, 0xFFFFFF),
   nxt = lab(216, 4, "NEXT TX", 12, "dim", 100, "center"),
   msg1 = lab(214, 50, "", 12, 0x14F195, 104, "center"),
   msg2 = lab(214, 66, "", 14, 0xFFFFFF, 104, "center"),
@@ -112,7 +149,7 @@ local L = {
   peer = lab(216, 102, "", 12, "dim", 100, "center"),
   spam = lab(216, 182, "", 12, "orange", 100, "center"),
 }
-local GAME_OBJS = { frame, board, next_cv }
+local GAME_OBJS = { frame, next_cv }
 for _, l in pairs(L) do GAME_OBJS[#GAME_OBJS + 1] = l end
 
 local panel = ui.rect(70, 66, W - 140, 76, { color = "panel", radius = 8, border = "border" })
@@ -125,7 +162,8 @@ local sub = ui.label(70, 110, "", { size = 12, color = "dim", w = W - 140, align
 local state = "menu"      -- menu | lobby | play | clear | over
 local mode = "marathon"   -- marathon | sprint | versus
 local grid = {}           -- grid[row][col]: 0 empty, 1..8 a colour index
-local shown = {}          -- what each board cell shows now (to redraw only changes)
+local shown = {}          -- what each screen cell shows now (to redraw only changes)
+local orient = "down"     -- which way transactions fall on screen right now
 local cur = nil           -- the falling piece: { k, r, x, y }
 local next_k = 1
 local bag = {}
@@ -288,12 +326,21 @@ local function render()
       if c[2] >= 0 then view[c[2]][c[1]] = cur.k end
     end
   end
+  -- Logical row r runs along gravity; it lands on the screen turned to suit
+  -- the cluster.
+  local cv = (orient == "down" or orient == "up") and board_v or board_h
   for r = 0, ROWS - 1 do
     for c = 0, COLS - 1 do
       local v = view[r][c]
-      if shown[r][c] ~= v then
-        paint_cell(board, c, r, v)
-        shown[r][c] = v
+      local sx, sy
+      if orient == "down" then sx, sy = c, r
+      elseif orient == "up" then sx, sy = c, ROWS - 1 - r
+      elseif orient == "right" then sx, sy = r, c
+      else sx, sy = ROWS - 1 - r, c end
+      local key = sy * 32 + sx
+      if shown[key] ~= v then
+        paint_cell(cv, sx, sy, v)
+        shown[key] = v
       end
     end
   end
@@ -313,11 +360,19 @@ local function render_next()
 end
 
 -- The other player's stack, from their column heights (versus).
+-- Sideways there's no room for the picture, so it says how high their stack is.
 local function render_peer(heights)
   peer_cv:clear(BG)
+  local top = 0
   for c = 0, COLS - 1 do
     local h = heights[c + 1] or 0
     if h > 0 then peer_cv:rect(c, ROWS - h, 1, h, 0x5B4A9E) end
+    top = math.max(top, h)
+  end
+  if orient == "down" or orient == "up" then
+    L.peer:text(VS.name)
+  else
+    L.peer:text(VS.name .. ": " .. top .. " rows")
   end
 end
 
@@ -345,9 +400,43 @@ end
 
 local function set_game_visible(on)
   for _, o in ipairs(GAME_OBJS) do o:show(on) end
-  peer_cv:show(on and mode == "versus")
+  local upright = orient == "down" or orient == "up"
+  board_v:show(on and upright)
+  board_h:show(on and not upright)
+  peer_cv:show(on and mode == "versus" and upright)
   L.peer:show(on and mode == "versus")
   L.spam:show(on and mode == "versus")
+end
+
+-- Turns the board for a new direction: the stack is redrawn turned, the
+-- side panel makes room, and the buttons follow.
+local function set_orientation(dir)
+  orient = dir
+  shown = {}
+  local upright = dir == "down" or dir == "up"
+  local cv = upright and board_v or board_h
+  cv:clear(BG)
+  if upright then
+    frame:pos(BX - 2, BY - 1)
+    frame:size(COLS * CELL * 2 + 4, ROWS * CELL * 2 + 2)
+    L.nxt:pos(216, 4) next_cv:pos(246, 22)
+    L.msg1:pos(214, 50) L.msg2:pos(214, 66) L.msg3:pos(214, 84)
+    L.peer:pos(216, 102) peer_cv:pos(251, 118) L.spam:pos(216, 182)
+  else
+    -- Sideways: the board sits low on the right, the next piece and the
+    -- messages go above it, and the other player's view below the panel.
+    frame:pos(110, 51)
+    frame:size(ROWS * CELL * 2 + 4, COLS * CELL * 2 + 2)
+    L.nxt:pos(106, 4) next_cv:pos(130, 22)
+    L.msg1:pos(206, 2) L.msg2:pos(206, 18) L.msg3:pos(206, 34)
+    L.peer:pos(112, 158) L.spam:pos(112, 176)
+  end
+  if state ~= "menu" and state ~= "lobby" then
+    board_v:show(upright)
+    board_h:show(not upright)
+    peer_cv:show(mode == "versus" and upright)
+  end
+  ui.hint(KEYS[dir].hint)
 end
 
 ---------------------------------------------------------------------------
@@ -470,9 +559,18 @@ local function finish_clear()
     flash(0x14, 0xF1, 0x95, 90)
   end
   if epoch > old_epoch then
-    timer.after(1900, function()
-      if state == "play" then side_message("NEW EPOCH", tostring(epoch), "validators rewarded") end
-    end)
+    local cl, dir = cluster_of(epoch)
+    if dir ~= orient then
+      -- A new cluster (or Localnet's turn): gravity changes direction.
+      set_orientation(dir)
+      L.cluster:text(cl.name) L.cluster:color(cl.color)
+      side_message("CLUSTER SWITCH", cl.name, "gravity: " .. dir)
+      sweep()
+    else
+      timer.after(1900, function()
+        if state == "play" then side_message("NEW EPOCH", tostring(epoch), "validators rewarded") end
+      end)
+    end
   end
   if mode == "versus" then
     -- Finalized blocks cancel incoming spam first, then the rest is sent.
@@ -523,8 +621,8 @@ end
 local function new_game(seed)
   rng = new_rng(seed)
   for r = 0, ROWS - 1 do
-    grid[r], shown[r] = {}, {}
-    for c = 0, COLS - 1 do grid[r][c] = 0 shown[r][c] = -99 end
+    grid[r] = {}
+    for c = 0, COLS - 1 do grid[r][c] = 0 end
   end
   bag = {}
   score, lines, epoch, slot, slot_t, play_ms = 0, 0, 1, 0, 0, 0
@@ -532,15 +630,16 @@ local function new_game(seed)
   VS.sent, VS.got, VS.pending, VS.over_at, VS.result = 0, 0, 0, nil, nil
   das_dir, das_t = 0, 0
   next_k = draw_bag()
+  set_orientation("down")
+  L.cluster:text("MAINNET") L.cluster:color(CLUSTERS[1].color)
   set_game_visible(true)
   show_message(nil)
   L.title:text(mode == "sprint" and "SPRINT 40" or (mode == "versus" and "VERSUS" or "PROOF OF STACK"))
   if mode == "versus" then
-    L.peer:text(VS.name)
     render_peer({})
   end
   state = "play"
-  ui.hint("L/R move  UP rotate  DN soft  SELECT drop")
+  ui.hint(KEYS[orient].hint)
   spawn()
   render()
   update_panel()
@@ -779,7 +878,9 @@ end
 local function input_tick(ms)
   if not has_keys then return end
   local k = sys.keys()
-  local dir = (k.left and not k.right) and -1 or ((k.right and not k.left) and 1 or 0)
+  local map = KEYS[orient]
+  local minus, plus = k[map.minus], k[map.plus]
+  local dir = (minus and not plus) and -1 or ((plus and not minus) and 1 or 0)
   if dir == 0 then
     das_dir = 0
   elseif dir ~= das_dir then
@@ -792,7 +893,7 @@ local function input_tick(ms)
       if not try_move(dir, 0) then das_t = 0 break end
     end
   end
-  return k.down
+  return k[map.soft]
 end
 
 function on_tick(ms)
@@ -861,11 +962,12 @@ function on_key(key, rep)
     return true
   end
   if state ~= "play" or not cur then return true end
-  if key == "up" and not rep then rotate()
+  local map = KEYS[orient]
+  if key == map.turn and not rep then rotate()
   elseif key == "select" and not rep then hard_drop()
-  elseif not has_keys and (key == "left" or key == "right") then
-    try_move(key == "left" and -1 or 1, 0)       -- older badges: a step per press
-  elseif not has_keys and key == "down" then
+  elseif not has_keys and (key == map.minus or key == map.plus) then
+    try_move(key == map.minus and -1 or 1, 0)    -- older badges: a step per press
+  elseif not has_keys and key == map.soft then
     if try_move(0, 1) then score = score + 1 end
   end
   if state == "play" then render() end

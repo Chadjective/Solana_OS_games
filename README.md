@@ -193,6 +193,19 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
   Finalizing 4 at once is a **SUPERMAJORITY**.
 - **Epochs:** every 10 blocks a new epoch starts, and transactions fall
   faster.
+- **Cluster switch:** as the epochs go by, the game moves across Solana's
+  clusters, and gravity turns with it:
+
+  | Epochs | Cluster | Transactions... | Buttons |
+  |---|---|---|---|
+  | 1–3 | Mainnet | fall down | LEFT/RIGHT move, UP rotate, DOWN soft drop |
+  | 4–6 | Devnet | slide in from the left (a wide board) | UP/DOWN move, LEFT rotate, RIGHT soft drop |
+  | 7–9 | Testnet | rise from the bottom | LEFT/RIGHT move, DOWN rotate, UP soft drop |
+  | 10+ | Localnet | turn every epoch: down, right, up, left | as above for each direction |
+
+  The stack you've built turns with the board, a "CLUSTER SWITCH" message
+  and an LED sweep mark each change, and the hint bar always shows the
+  buttons. SELECT always drops instantly.
 - **SLOT** ticks at Solana's real slot time (about 400 ms), and **TPS** shows
   how fast you're playing (about one piece a second reads as Solana's famous
   65,000).
@@ -211,8 +224,11 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
     Spam you finalize away first cancels spam headed your way. You see the
     other player's stack in a mini view. Both players get the same pieces.
 
-**Controls:** LEFT/RIGHT move (hold to slide), UP rotates, DOWN drops faster,
-SELECT drops instantly, CANCEL quits.
+![Cluster switch: Mainnet (falling down), Devnet (sideways), Testnet (rising) and Localnet (here falling left)](docs/proof-of-stack-clusters.png)
+
+**Controls (Mainnet):** LEFT/RIGHT move (hold to slide), UP rotates, DOWN
+drops faster, SELECT drops instantly, CANCEL quits. On the other clusters the
+arrows turn with gravity, as in the table above.
 
 **Permissions:** LEDs (`led`) and Nearby badges (`mesh`, for versus).
 
@@ -254,7 +270,8 @@ These run on a computer, not on the badge.
   file and refuses a version that doesn't, so run this before submitting.
 - `python3 tools/test_proof_of_stack.py` plays Proof of Stack with a bot that
   reads the board off the screen: a Sprint to 40 blocks, a Marathon to the
-  end, a check that spam rows reach the other badge, and a versus match
+  end, a Marathon through all four clusters (120 blocks, every gravity
+  direction), a check that spam rows reach the other badge, and a versus match
   between two badges with 15% of messages dropped, where both must agree on
   the winner.
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
