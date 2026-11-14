@@ -31,6 +31,11 @@ function ui.rect(x, y, w, h, opts)
   function o:size(nw, nh) self.w, self.h = nw, nh end
   return o
 end
+function ui.bar(x, y, w, h, value)
+  local o = new("bar", x, y, { w = w, h = h, value = value or 0 })
+  function o:set(v) self.value = v end
+  return o
+end
 function ui.gradient(x, y, w, h) return new("gradient", x, y, { w = w, h = h }) end
 function ui.image(x, y, rows, opts)
   assert(type(rows) == "table", "mock supports row images only")

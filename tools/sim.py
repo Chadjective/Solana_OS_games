@@ -110,6 +110,13 @@ class Sim:
                 r = o.opts.radius or 0
                 d.rounded_rectangle([x, y, x + o.w - 1, y + o.h - 1], radius=r, fill=rgb(o.col),
                                     outline=rgb(o.opts.border) if o.opts.border else None)
+            elif k == "bar":
+                d.rectangle([x, y, x + o.w - 1, y + o.h - 1], fill=rgb("panel"))
+                fill = int(o.w * float(o.value) / 100)
+                for i in range(fill):
+                    t = i / max(1, o.w - 1)
+                    c = tuple(int(a + (b - a) * t) for a, b in zip(rgb(0x9945FF), rgb(0x14F195)))
+                    d.line([x + i, y, x + i, y + o.h - 1], fill=c)
             elif k == "gradient":
                 for i in range(o.w):
                     t = i / max(1, o.w - 1)

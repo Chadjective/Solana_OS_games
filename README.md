@@ -62,38 +62,60 @@ Everything in `pong/` ships to the badge, so keep only game files there.
 
 ## Solana Monkey Bomb (SMB)
 
-![Solana Monkey Bomb: menu, aiming, a bomb hitting the Shard, and the hole it leaves](docs/monkey-bomb-preview.png)
+![Solana Monkey Bomb: three random London skylines, charging a throw, a banana bunch in flight, and the points it scores](docs/monkey-bomb-preview.png)
 
-A turn-based throwing game over the City of London's skyline, with a nod to
-the SMB community.
+A turn-based throwing game over London, with a nod to the SMB community.
 
 - **Two monkeys** on rooftops: player 1 in a **purple** cap, player 2 in a
   **green** cap (the Solana colours). The monkeys are original pixel art.
-- **The skyline** is rebuilt every round, mixing **the Shard**, **the
-  Gherkin**, **the Cheesegrater** and **the Walkie-Talkie** with ordinary
-  office blocks with lit windows. Bombs blow holes in the buildings.
-- **Wind** changes every round and pushes the bomb sideways (shown at the top).
-- **1 player** against a CPU monkey on Easy or Hard. It plans its throw and
-  gets more accurate after each miss.
-- **2 players: pass the badge.** Take turns on one badge.
-- **2 players: 2 badges.** Play over the badges' radio, invite and accept as
-  in Pong. Because the game is turn-based, it also works between badges far
-  apart through a server "bridge".
-- First to win **3 rounds** wins the match. Match wins are saved on the badge.
+- **A new London skyline every round.** It mixes 3–5 landmarks from 18, with
+  office blocks between them: the Shard, the Gherkin, the Cheesegrater, the
+  Walkie-Talkie, Big Ben, the London Eye, Buckingham Palace, Westminster
+  Abbey, Tower Bridge, St Paul's, the BT Tower, the Tower of London, Canary
+  Wharf, Battersea Power Station, Nelson's Column, the O2, Wembley and
+  Lloyd's. At most one very wide landmark (the Palace, Tower Bridge, the O2
+  or Wembley) appears per round. Some have see-through parts that bombs fly
+  through, such as the inside of the London Eye and the space under Tower
+  Bridge.
+- **Destructible:** every explosion blows a hole in the skyline. A monkey
+  whose roof is blown away drops down to the next solid surface.
+- **Wind** changes every round and pushes throws sideways (shown at the top).
+- **Weapons**, each player per round:
 
-**Controls:** UP/DOWN sets the angle, LEFT/RIGHT sets the power (hold to go
-faster), and SELECT throws. CANCEL goes back to the menu.
+  | Weapon | Ammo | What it does |
+  |---|---|---|
+  | Bomb | unlimited | The standard throw. |
+  | Banana bunch | 2 | Bursts on impact into 5 bananas that scatter and explode. A cluster bomb. |
+  | Bazooka | 3 | Fast and flat, hardly drops, but drifts more in the wind. |
+  | Coconut | 1 | Heavy, with a huge blast. |
+
+- **Points for damage.** Every pixel destroyed scores: 1 for an office block,
+  and 1–3 for a landmark depending on how iconic it is. Knocking out more
+  than half a building earns a bonus: +20 for a block, and +100 to +300 for a
+  landmark, announced on screen (e.g. "BIG BEN DESTROYED!"). Hitting the
+  other monkey earns +250 and wins the round. First to win **3 rounds** wins
+  the match. Points are a bonus score: the best total is saved on the badge.
+- **Modes:** 1 player against a CPU monkey (Easy or Hard, and it uses the
+  weapons too), **pass the badge** (2 players on one badge), or **2 badges**
+  over the radio. Because the game is turn-based, 2-badge games also work
+  between badges far apart through a server "bridge".
+
+**Controls:** UP/DOWN aims. LEFT/RIGHT switches weapon. **Hold SELECT** to
+fill the power meter, and let go to throw. On older badge software that can't
+detect a button being let go, press SELECT once to start the meter and again
+to throw. CANCEL goes back to the menu.
 
 **How two badges stay in sync:** both badges build the skyline from the same
 **seed**, a starting number for all the random choices. A throw is sent as
-just its angle and power (under 50 bytes). Each badge then flies the bomb with
-the same fixed-step physics, so the flight, the hole and the result are
-identical on both. Each throw is resent until the other badge confirms it,
-so lost messages are fine.
+just its angle, power and weapon (about 50 bytes). Each badge then flies it
+with the same fixed-step physics, so the flight, the holes, the points and
+the result are identical on both. Each throw is resent until the other badge
+confirms it, so lost messages are fine.
 
 | File | What it is |
 |---|---|
-| `monkey-bomb/main.lua` | The whole game, including the pixel art and the skyline drawing. |
+| `monkey-bomb/main.lua` | The game: weapons, physics, points, CPU, menus and the two-badge mode. |
+| `monkey-bomb/skyline.lua` | The London skyline: every landmark's drawing, and how a city is put together. To add a landmark, add one entry here. |
 | `monkey-bomb/app.json` | The manifest (`led` for the lights, `mesh` for two-badge games). |
 
 ## Try a game on a real badge or the emulator
@@ -118,9 +140,9 @@ These run on a computer, not on the badge.
   messages a second.
 - `python3 tools/test_monkey_bomb.py` plays Monkey Bomb against the CPU on
   both levels, a pass-the-badge match, and a two-badge match with 20% of
-  messages dropped. It checks that both badges' skylines stay
-  pixel-for-pixel identical and that every step stays well under the
-  badge's CPU limit.
+  messages dropped, with every weapon in play. It checks that both badges'
+  skylines stay pixel-for-pixel identical, that both agree on rounds and
+  points, and that every step stays well under the badge's CPU limit.
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
 
 The tools need `pip install lupa pillow`. The stand-in badge only approximates

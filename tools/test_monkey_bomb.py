@@ -6,9 +6,10 @@
 1. Full matches against the CPU (Easy and Hard), and one pass-the-badge match.
    Checks no Lua errors and every callback stays well under the badge's
    200 000-instruction limit (the CPU's planning is the heavy part).
-2. A two-badge match with 20% of radio messages dropped. Checks both
-   badges build the same skyline, every explosion leaves both cities
-   pixel-for-pixel identical, and both agree on the final score.
+2. A two-badge match with 20% of radio messages dropped, with every
+   weapon in play. Checks both badges build the same skyline, every throw
+   leaves both cities pixel-for-pixel identical, and both agree on the
+   rounds and on every player's points.
 """
 import json
 import os
@@ -38,7 +39,7 @@ def texts(sim):
 
 
 def hud_aim(sim):
-    return next((t for t in texts(sim) if "angle" in t or "aiming" in t), "")
+    return next((t for t in texts(sim) if "angle" in t or "aiming" in t or "power" in t), "")
 
 
 def canvas_pixels(sim):
@@ -47,14 +48,20 @@ def canvas_pixels(sim):
 
 
 def human_turn(sim, rnd):
-    """Aim somewhere plausible with the d-pad, then throw."""
+    """Aim with UP/DOWN, maybe switch weapon, then hold SELECT to charge and let go."""
     angle_steps = rnd.randint(-10, 25)
-    power_steps = rnd.randint(-5, 40)
     for _ in range(abs(angle_steps)):
         sim.press("up" if angle_steps > 0 else "down")
-    for _ in range(abs(power_steps)):
-        sim.press("right" if power_steps > 0 else "left")
+    for _ in range(rnd.choice([0, 0, 1, 2, 3])):
+        sim.press("right")
     sim.press("select")
+    sim.hold(["select"])
+    sim.tick(30, rnd.randint(18, 45))      # 0.5 - 1.35 s of charging
+    sim.hold([])
+
+
+def my_turn(sim, who="YOU:"):
+    return str(sim.M.hint).startswith("UP/DN aim") and who in hud_aim(sim) and "last" in hud_aim(sim)
 
 
 def play_vs_cpu(level_row, rnd, max_ticks=20000):
@@ -66,7 +73,7 @@ def play_vs_cpu(level_row, rnd, max_ticks=20000):
     peak, throws = 0, 0
     for _ in range(max_ticks):
         take_count(sim)
-        if "UP/DN angle" in str(sim.M.hint) and "YOU:" in hud_aim(sim):
+        if my_turn(sim):
             human_turn(sim, rnd)
             throws += 1
         peak = max(peak, take_count(sim))
@@ -75,7 +82,7 @@ def play_vs_cpu(level_row, rnd, max_ticks=20000):
         t = texts(sim)
         if "YOU WIN!" in t or "CPU WINS" in t:
             result = "YOU WIN!" if "YOU WIN!" in t else "CPU WINS"
-            score = next(x for x in t if " - " in x)
+            score = next(x for x in t if x.startswith("Rounds"))
             return result, score, throws, peak
     raise AssertionError("match never finished")
 
@@ -88,7 +95,7 @@ def play_hotseat(rnd, max_ticks=40000):
     sim.press("select")
     throws = 0
     for _ in range(max_ticks):
-        if "UP/DN angle" in str(sim.M.hint) and ("P1:" in hud_aim(sim) or "P2:" in hud_aim(sim)):
+        if my_turn(sim, "P1:") or my_turn(sim, "P2:"):
             human_turn(sim, rnd)
             throws += 1
         sim.tick(30)
@@ -132,12 +139,12 @@ def play_duo(rnd, loss=0.2, max_ticks=60000):
     throws, checks = 0, 0
     for _ in range(max_ticks):
         for s in (a, b):
-            if "UP/DN angle" in str(s.M.hint) and "YOU:" in hud_aim(s):
+            if my_turn(s):
                 human_turn(s, rnd)
                 throws += 1
         tick()
         # Between throws (both waiting for someone to aim) the cities must match.
-        if ("UP/DN angle" in str(a.M.hint)) != ("UP/DN angle" in str(b.M.hint)):
+        if my_turn(a) != my_turn(b):
             if "aiming" in hud_aim(a) or "aiming" in hud_aim(b):
                 pa, pb = canvas_pixels(a), canvas_pixels(b)
                 assert pa == pb, f"skylines differ after throw {throws}"
@@ -147,9 +154,9 @@ def play_duo(rnd, loss=0.2, max_ticks=60000):
             return any(x == "YOU WIN!" or x.endswith(" WINS") for x in t)
         done_a, done_b = won(ta), won(tb)
         if done_a and done_b:
-            sa = next(x for x in ta if " - " in x)
-            sb = next(x for x in tb if " - " in x)
-            assert sa.split()[0:3] == sb.split()[0:3], f"scores differ: {sa} / {sb}"
+            sa = next(x for x in ta if x.startswith("Rounds"))
+            sb = next(x for x in tb if x.startswith("Rounds"))
+            assert sa == sb, f"rounds or points differ: {sa} / {sb}"
             title = lambda t: next(x for x in t if x == "YOU WIN!" or x.endswith(" WINS"))
             return title(ta), title(tb), sa, throws, checks, stats, a, b
     raise AssertionError("two-badge match never finished")
@@ -160,7 +167,7 @@ def main():
     random.seed(4)
     for row, name in ((1, "Easy"), (2, "Hard")):
         result, score, throws, peak = play_vs_cpu(row, rnd)
-        print(f"vs CPU {name}: {result} {score.split()[0:3]} after {throws} of your throws, "
+        print(f"vs CPU {name}: {result} ({score}) after {throws} of your throws, "
               f"peak {peak} instructions per callback")
         assert peak < BUDGET * 0.5, "too close to the badge's instruction limit"
 
@@ -168,7 +175,7 @@ def main():
     print(f"pass the badge: {winner} after {throws} throws")
 
     wa, wb, score, throws, checks, stats, a, b = play_duo(rnd)
-    print(f"two badges: A sees '{wa}', B sees '{wb}', score {' '.join(score.split()[0:3])}, "
+    print(f"two badges: A sees '{wa}', B sees '{wb}', {score}, "
           f"{throws} throws, skylines identical at {checks} checks")
     print(f"messages: biggest {stats['max_size']} bytes, {stats['lost']} dropped on purpose, "
           f"most in one second: A {net.max_per_second(a.sent)}, B {net.max_per_second(b.sent)}")

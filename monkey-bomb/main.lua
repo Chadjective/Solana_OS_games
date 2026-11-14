@@ -1,28 +1,37 @@
 -- Solana Monkey Bomb (SMB): two monkeys on the London skyline take turns
--- lobbing bombs at each other. Set the angle and power, mind the wind, and
--- blow holes in the Shard, the Gherkin, the Cheesegrater and the
--- Walkie-Talkie on the way. First to win 3 rounds wins the match.
+-- lobbing weapons at each other. Aim, pick a weapon, hold SELECT to charge
+-- the throw, mind the wind, and blow holes in London's landmarks for points.
+-- First to win 3 rounds wins the match.
 --
 -- Modes: 1 player vs a CPU monkey (Easy / Hard), 2 players passing one
 -- badge, and 2 players on two badges over the mesh radio.
 --
 -- Two badges stay in sync without sending pictures: both build the same
 -- skyline from the same seed (a starting number for the random choices),
--- and a throw is just "angle, power". Each badge then flies the bomb with
--- the same fixed-step physics, so the flight, the hole it blows and the
--- result come out the same on both.
+-- and a throw is just "angle, power, weapon". Each badge then flies it with
+-- the same fixed-step physics, so the flight, the holes, the points and
+-- the result come out the same on both.
+
+local sky = require("skyline")
 
 local W, H = ui.W, ui.H              -- 320 x 218
 local SCALE = 2                      -- every canvas pixel is 2 x 2 on screen
-local CW, CH = 160, 101              -- the city canvas (320 x 202 on screen, above the hint strip)
+local CW, CH = sky.CW, sky.CH        -- the city canvas: 160 x 101 (320 x 202 on screen)
+local GROUND_Y = CH - 2
 local WIN_ROUNDS = 3
 
-local G = 80                         -- gravity, canvas px / s^2
-local POWER_TO_SPEED = 1.35          -- power 1..100 -> launch speed (canvas px / s)
 local STEP_MS = 8                    -- physics step: the same on every badge
 local STEP = STEP_MS / 1000
-local BLAST = 6                      -- explosion radius (canvas px)
-local SAFE_STEPS = 30                -- a bomb can't hit its thrower for this many steps
+local SAFE_STEPS = 30                -- a throw can't hit its thrower for this many steps
+local CHARGE_MS = 1500               -- holding SELECT from 0 to full power
+
+-- Points
+local PTS_PIXEL = 1                  -- per pixel of an ordinary block destroyed
+local PTS_ICON_PIXEL = 1             -- times a landmark's value (1..3), per pixel
+local DESTROYED_AT = 0.55            -- share of a building gone to count as destroyed
+local PTS_BLOCK_DOWN = 20
+local PTS_ICON_DOWN = 100            -- times the landmark's value
+local PTS_MONKEY = 250
 
 -- Mesh radio (two-badge games).
 local HELLO_EVERY = 1200
@@ -32,18 +41,8 @@ local LOST_AFTER = 15000
 
 local has_led = led ~= nil
 local has_mesh = mesh ~= nil
+local has_keys = sys.keys ~= nil
 
----------------------------------------------------------------------------
--- Colours
----------------------------------------------------------------------------
-local SKY = 0x120B2B
-local STAR = 0x5A5488
-local MOON = 0xE8E4C9
-local MOON_SHADE = 0xBDB79A
-local GROUND = 0x1B1B24
-local LIT = 0xF2C14E
-local DARK_WIN = 0x262A3A
-local BODIES = { 0x6E3B32, 0x8A8270, 0x3B4C66, 0x55586A, 0x4A3F5C }
 local CAP = { 0x9945FF, 0x14F195 }   -- player 1 purple, player 2 green
 
 ---------------------------------------------------------------------------
@@ -73,21 +72,20 @@ local MONKEY_THROW = {
   "n.nnnn..",
   "..n..n..",
 }
-local BOMB = {
-  "...y.",
-  "..o..",
-  ".kkk.",
-  "kkwkk",
-  "kkkkk",
-  ".kkk.",
-}
-local BOMB_W, BOMB_H = 5, 6
 
-local function mirror(rows)
+local ART = {
+  bomb = { "...y.", "..o..", ".kkk.", "kkwkk", "kkkkk", ".kkk." },
+  bunch = { "....g.", "..yyg.", ".yyyy.", "yyyyy.", "yyyy..", ".yy..." },
+  banana = { "y...y", ".yyy." },
+  rocket = { "y.....", "oqqqqm", "y....." },
+  coconut = { "..y..", ".ccc.", "cdcdc", "ccccc", "ccdcc", ".ccc." },
+}
+local ART_PAL = { palette = { q = 0x9AA0A6, c = 0x6B4423, d = 0x3B2412 }, scale = SCALE }
+
+local function mirror(rows, width)
   local out = {}
   for i, r in ipairs(rows) do
-    local padded = r .. string.rep(".", 8 - #r)
-    out[i] = padded:reverse()
+    out[i] = (r .. string.rep(".", width - #r)):reverse()
   end
   return out
 end
@@ -110,59 +108,70 @@ local function explosion_rows()
   return rows
 end
 
-local function monkey_palette(i)
-  return { palette = { h = CAP[i], n = 0x8B5A2B, f = 0xE0B98A }, scale = SCALE }
-end
-
 ---------------------------------------------------------------------------
--- A random number generator that gives the same numbers on every badge for
--- the same seed (Park-Miller; every step stays below 2^31, so 32-bit
--- badges and 64-bit computers agree).
+-- Weapons
+--   speed: launch speed per point of power; grav: gravity (canvas px/s^2);
+--   wind: how much the wind pushes it; blast: explosion radius (canvas px);
+--   ammo: per player per round (-1 = unlimited); split: bananas it bursts into.
 ---------------------------------------------------------------------------
-local function new_rng(seed)
-  local s = seed % 2147483646 + 1
-  local r = {}
-  function r.next()
-    local hi = s // 127773
-    local lo = s % 127773
-    s = 16807 * lo - 2836 * hi
-    if s <= 0 then s = s + 2147483647 end
-    return s
-  end
-  function r.int(a, b) return a + r.next() % (b - a + 1) end
-  function r.chance(p) return r.next() % 1000 < p * 1000 end
-  return r
-end
+local WEAPONS = {
+  { name = "BOMB",         ammo = -1, speed = 1.35, grav = 80, wind = 1.0, blast = 6,  art = "bomb" },
+  { name = "BANANA BUNCH", ammo = 2,  speed = 1.35, grav = 80, wind = 1.0, blast = 4,  art = "bunch", split = 5 },
+  { name = "BAZOOKA",      ammo = 3,  speed = 1.9,  grav = 28, wind = 1.6, blast = 7,  art = "rocket" },
+  { name = "COCONUT",      ammo = 1,  speed = 1.25, grav = 90, wind = 0.7, blast = 11, art = "coconut" },
+}
+local BANANA = { name = "banana", speed = 1, grav = 80, wind = 1.0, blast = 4, art = "banana" }
+-- Where the bananas of a bunch fly when it bursts (canvas px/s): fixed, so
+-- both badges agree.
+local SPLIT_V = { { -45, -55 }, { -22, -75 }, { 0, -85 }, { 22, -75 }, { 45, -55 } }
 
 ---------------------------------------------------------------------------
 -- Screen objects (drawn in the order they are made)
 ---------------------------------------------------------------------------
-ui.bg(SKY)
+ui.bg(sky.SKY)
 local city = ui.canvas(0, 0, CW, CH, { scale = SCALE, color = "bg" })
 
 -- Colours as the canvas stores them (the screen has 65,536 colours, so a
 -- colour can come back slightly different): anything in EMPTY is sky.
 local EMPTY = {}
-for _, c in ipairs({ SKY, STAR, MOON, MOON_SHADE }) do
+for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE }) do
   city:pixel(0, 0, c)
   EMPTY[city:get(0, 0)] = true
 end
 
 local monkeys = {}
 for i = 1, 2 do
-  local stand = i == 1 and MONKEY_STAND or mirror(MONKEY_STAND)
-  local throw = i == 1 and MONKEY_THROW or mirror(MONKEY_THROW)
+  local pal = { palette = { h = CAP[i], n = 0x8B5A2B, f = 0xE0B98A }, scale = SCALE }
   local m = { x = 0, y = 0, alive = true }
-  m.stand = ui.image(0, 0, stand, monkey_palette(i))
-  m.throw = ui.image(0, 0, throw, monkey_palette(i))
+  m.stand = ui.image(0, 0, i == 1 and MONKEY_STAND or mirror(MONKEY_STAND, 8), pal)
+  m.throw = ui.image(0, 0, i == 1 and MONKEY_THROW or mirror(MONKEY_THROW, 8), pal)
+  m.stand:show(false)
   m.throw:show(false)
   monkeys[i] = m
 end
 
-local bomb_img = ui.image(0, 0, BOMB, { scale = SCALE })
-bomb_img:show(false)
-local boom_img = ui.image(0, 0, explosion_rows(), { scale = SCALE })
-boom_img:show(false)
+-- One sprite per projectile that can be in the air at once.
+local function sprite(rows)
+  local img = ui.image(0, 0, rows, ART_PAL)
+  img:show(false)
+  return img
+end
+local SPRITES = {
+  bomb = sprite(ART.bomb),
+  bunch = sprite(ART.bunch),
+  rocket = sprite(ART.rocket),
+  rocket_l = sprite(mirror(ART.rocket, 6)),
+  coconut = sprite(ART.coconut),
+}
+local banana_sprites = {}
+for i = 1, #SPLIT_V do banana_sprites[i] = sprite(ART.banana) end
+
+local booms, boom_busy = {}, {}
+local BOOM_ROWS = explosion_rows()
+for i = 1, 6 do
+  booms[i] = ui.image(0, 0, BOOM_ROWS, { scale = SCALE })
+  booms[i]:show(false)
+end
 local top_marker = ui.rect(0, 0, 4, 3, { color = "yellow" })
 top_marker:show(false)
 
@@ -174,35 +183,42 @@ for i = 1, 5 do
 end
 
 local hud_l = ui.label(4, 2, "", { size = 12, color = CAP[1] })
-local hud_r = ui.label(W - 104, 2, "", { size = 12, color = CAP[2], w = 100, align = "right" })
+local hud_r = ui.label(W - 124, 2, "", { size = 12, color = CAP[2], w = 120, align = "right" })
 local hud_wind = ui.label(0, 2, "", { size = 12, color = "dim", w = W, align = "center" })
 local hud_aim = ui.label(0, 16, "", { size = 12, color = 0xFFFFFF, w = W, align = "center" })
-local hud = { hud_l, hud_r, hud_wind, hud_aim }
+local power_bar = ui.bar(W // 2 - 50, 31, 100, 5, 0)
+local popup = ui.label(0, 40, "", { size = 14, color = "yellow", w = W, align = "center" })
+local hud = { hud_l, hud_r, hud_wind, hud_aim, popup }
 
-local panel = ui.rect(40, 62, W - 80, 74, { color = "panel", radius = 8, border = "border" })
-local msg = ui.label(40, 74, "", { size = 20, color = 0xFFFFFF, w = W - 80, align = "center" })
-local sub = ui.label(40, 106, "", { size = 14, color = "dim", w = W - 80, align = "center" })
+local panel = ui.rect(30, 62, W - 60, 74, { color = "panel", radius = 8, border = "border" })
+local msg = ui.label(30, 74, "", { size = 20, color = 0xFFFFFF, w = W - 60, align = "center" })
+local sub = ui.label(30, 106, "", { size = 14, color = "dim", w = W - 60, align = "center" })
 
 ---------------------------------------------------------------------------
 -- State
 ---------------------------------------------------------------------------
-local state = "menu"     -- menu | lobby | aim | wait | cpu | fly | boom | between | over
+local state = "menu"     -- menu | lobby | aim | charge | wait | cpu | fly | boom | between | over
 local mode = "cpu"       -- cpu | hot (pass the badge) | duo (two badges)
 local level = 1          -- CPU: 1 easy, 2 hard
 local menu_i = 1
 local turn = 1           -- whose throw: 1 (left) or 2 (right)
 local wins = { 0, 0 }    -- rounds won this match
+local points = { 0, 0 }  -- points this match
 local round = 0
 local game_seed = 0
 local wind = 0
-local aim = { { a = 45, p = 50 }, { a = 45, p = 50 } }
+local town = nil         -- this round's city: buildings and who owns each column
+local aim = { { a = 45, p = 50, w = 1 }, { a = 45, p = 50, w = 1 } }
+local ammo = { {}, {} }
+local power = 0          -- while charging
 local now = 0
 local acc = 0            -- ms not yet simulated
-local bomb = nil         -- { x, y, vx, vy, steps, thrower }
+local flying = {}        -- projectiles in the air
+local throw_info = nil   -- what this throw has done so far: { thrower, hit = {}, pts, news }
 local shots = 0          -- throws so far this match (both badges count the same)
 local cpu_plan = nil
 local cpu_misses = 0
-local last_landing = nil
+local popup_timer = nil
 
 -- Two badges
 local me = 1             -- which monkey this badge plays
@@ -220,6 +236,7 @@ local lobby_ids, seen = {}, {}
 local invited, asking, hello_timer = nil, nil, nil
 
 local match_wins = storage.get("match_wins") or { 0, 0, 0 }   -- easy, hard, two badges
+local best_points = storage.get("best_points") or 0
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -238,6 +255,16 @@ local function show_message(a, b)
     msg:text(a)
     sub:text(b or "")
   end
+end
+
+local function show_popup(text)
+  popup:text(text)
+  popup:show(true)
+  if popup_timer then timer.cancel(popup_timer) end
+  popup_timer = timer.after(2200, function()
+    popup:show(false)
+    popup_timer = nil
+  end)
 end
 
 local function flash(r, g, b, ms)
@@ -272,170 +299,9 @@ local function radio_send(to, m)
   return true
 end
 
----------------------------------------------------------------------------
--- The skyline
----------------------------------------------------------------------------
 local function solid(x, y)
   local c = city:get(x, y)
   return c ~= nil and not EMPTY[c]
-end
-
-local function windows(r, x, top, w, h)
-  for wy = top + 2, CH - 4, 3 do
-    for wx = x + 1, x + w - 3, 2 do
-      city:pixel(wx, wy, r.chance(0.4) and LIT or DARK_WIN)
-    end
-  end
-end
-
--- An ordinary office block. Returns the roof's y.
-local function block(r, x, w, h)
-  local top = CH - 2 - h
-  city:rect(x, top, w - 1, h, BODIES[r.int(1, #BODIES)])
-  windows(r, x, top, w - 1, h)
-  return top
-end
-
--- The Shard: a tall glass pyramid with a split tip.
-local function shard(r, x, w)
-  local h = 84 + r.int(-3, 2)
-  local base = CH - 2
-  for i = 0, h - 1 do
-    local y = base - i
-    local t = 1 - i / h                        -- 1 at the bottom, 0 at the top
-    local half = math.max(1, math.floor((w / 2) * t + 0.5))
-    local cx = x + w // 2
-    if i > h - 7 then
-      -- the open, splintered tip
-      city:pixel(cx - 1, y, 0xB9CCDD)
-      if i % 2 == 0 then city:pixel(cx + 1, y, 0x8EA4BA) end
-    else
-      city:rect(cx - half, y, half, 1, 0xA9BFD4)   -- the lit face
-      city:rect(cx, y, half, 1, 0x7D93AA)          -- the face in shadow
-      if i % 5 == 0 then city:rect(cx - half, y, half * 2, 1, 0x6A7F96) end
-    end
-  end
-end
-
--- The Gherkin: a rounded bullet with spiralling dark glass.
-local function gherkin(r, x, w)
-  local h = 56 + r.int(-3, 3)
-  for i = 0, h - 1 do
-    local u = i / h                            -- 0 at the top, 1 at the bottom
-    local k = (u - 0.6) / 0.6
-    local half = (w / 2) * math.sqrt(math.max(0, 1 - k * k))
-    if u > 0.6 then half = (w / 2) * math.max(0.72, math.sqrt(math.max(0, 1 - k * k))) end
-    local hw = math.max(1, math.floor(half + 0.5))
-    local y = CH - 2 - h + i
-    local cx = x + w // 2
-    city:rect(cx - hw, y, hw * 2, 1, 0x2F6E78)
-    for px = cx - hw, cx + hw - 1 do
-      if (px + i * 2) % 7 < 2 then city:pixel(px, y, 0x1C4650) end
-    end
-  end
-end
-
--- The Cheesegrater: a steel wedge, upright at the back, sloping at the front.
-local function cheesegrater(r, x, w)
-  local h = 66 + r.int(-3, 3)
-  for i = 0, h - 1 do
-    local u = i / h                            -- 0 at the top
-    local rw = math.max(2, math.floor(w * (0.25 + 0.75 * u) + 0.5))
-    local y = CH - 2 - h + i
-    city:rect(x + w - rw, y, rw, 1, 0xC6C9CF)
-    city:pixel(x + w - rw, y, 0x8E939C)        -- the sloping edge
-    if i % 5 == 0 then city:rect(x + w - rw, y, rw, 1, 0x8E939C) end
-    city:pixel(x + w - 2, y, 0xE3B341)         -- yellow bracing at the back
-  end
-end
-
--- The Walkie-Talkie: wider at the top than at the bottom, with a green roof garden.
-local function walkie(r, x, w)
-  local h = 52 + r.int(-3, 3)
-  local base_w = w - 8
-  for i = 0, h - 1 do
-    local u = i / h                            -- 0 at the top
-    local rw = math.floor(base_w + (w - base_w) * (1 - u) + 0.5)
-    if i < 3 then rw = rw - (3 - i) * 2 end    -- the curved roof
-    local y = CH - 2 - h + i
-    local cx = x + w // 2
-    local col = i < 5 and 0x9FE3C4 or 0x3E6B66
-    city:rect(cx - rw // 2, y, rw, 1, col)
-    if i >= 5 and i % 3 == 0 then city:rect(cx - rw // 2, y, rw, 1, 0x2C504C) end
-  end
-end
-
-local LANDMARKS = {
-  { draw = shard, w = 20 },
-  { draw = gherkin, w = 18 },
-  { draw = cheesegrater, w = 22 },
-  { draw = walkie, w = 20 },
-}
-
--- Builds the whole city for a round from its seed, places the monkeys and
--- returns the wind. Every badge given the same seed builds the same city.
-local function build_city(seed)
-  local r = new_rng(seed)
-  city:rect(0, 0, CW, CH, SKY)
-  for _ = 1, 28 do city:pixel(r.int(0, CW - 1), r.int(0, 55), STAR) end
-  -- the moon
-  local mx, my = r.int(14, 40), r.int(10, 18)
-  for dy = -5, 5 do
-    local half = math.floor(math.sqrt(25 - dy * dy) + 0.5)
-    city:rect(mx - half, my + dy, half * 2 + 1, 1, MOON)
-  end
-  city:rect(mx + 1, my - 2, 2, 2, MOON_SHADE)
-  city:pixel(mx - 2, my + 2, MOON_SHADE)
-
-  -- left edge filler, left monkey's block, the middle, right monkey's block, right filler
-  local x = 0
-  local fill_l, fill_r = r.int(8, 13), r.int(8, 13)
-  block(r, x, fill_l, r.int(18, 34))
-  x = x + fill_l
-  local lw = r.int(15, 18)
-  local roof_l = block(r, x, lw, r.int(28, 44))
-  local monkey_l = x + lw // 2 - 4
-  x = x + lw
-
-  local rw = r.int(15, 18)
-  local right_start = CW - fill_r - rw
-  local mid_w = right_start - x
-
-  -- Three or four landmarks, shuffled, with ordinary blocks between them.
-  local order = { 1, 2, 3, 4 }
-  for i = #order, 2, -1 do
-    local j = r.int(1, i)
-    order[i], order[j] = order[j], order[i]
-  end
-  local picks, used = {}, 0
-  for _, k in ipairs(order) do
-    if used + LANDMARKS[k].w <= mid_w - 4 * (#picks + 2) and #picks < 4 then
-      picks[#picks + 1] = LANDMARKS[k]
-      used = used + LANDMARKS[k].w
-    end
-  end
-  local gap = mid_w - used
-  local slots = #picks + 1
-  for i = 1, slots do
-    local gw = (i == slots) and gap or math.max(4, math.floor(gap / (slots - i + 1)) + r.int(-2, 2))
-    gw = math.min(gw, gap)
-    if gw >= 3 then block(r, x, gw, r.int(16, 46)) end
-    x = x + gw
-    gap = gap - gw
-    if picks[i] then
-      picks[i].draw(r, x, picks[i].w)
-      x = x + picks[i].w
-    end
-  end
-
-  local roof_r = block(r, right_start, rw, r.int(28, 44))
-  local monkey_r = right_start + rw // 2 - 4
-  block(r, right_start + rw, fill_r, r.int(18, 34))
-  city:rect(0, CH - 2, CW, 2, GROUND)
-
-  monkeys[1].x, monkeys[1].y = monkey_l, roof_l - 10
-  monkeys[2].x, monkeys[2].y = monkey_r, roof_r - 10
-  return r.int(-12, 12)
 end
 
 ---------------------------------------------------------------------------
@@ -450,6 +316,12 @@ local function draw_monkey(i, throwing)
   m.throw:show(m.alive and throwing)
 end
 
+local function hide_projectiles()
+  for _, s in pairs(SPRITES) do s:show(false) end
+  for _, s in ipairs(banana_sprites) do s:show(false) end
+  top_marker:show(false)
+end
+
 local function set_play_visible(on)
   city:show(on)
   for i = 1, 2 do
@@ -459,10 +331,11 @@ local function set_play_visible(on)
     end
   end
   for _, l in ipairs(hud) do l:show(on) end
+  popup:show(false)
   if not on then
-    bomb_img:show(false)
-    boom_img:show(false)
-    top_marker:show(false)
+    power_bar:show(false)
+    hide_projectiles()
+    for _, b in ipairs(booms) do b:show(false) end
     for _, d in ipairs(aim_dots) do d:show(false) end
   end
 end
@@ -474,45 +347,53 @@ local function launch_point(i)
   return m.x - 1, m.y - 1
 end
 
-local function launch_velocity(i, a, p)
-  local v = p * POWER_TO_SPEED
+local function launch_velocity(i, a, p, wp)
+  local v = p * wp.speed
   local rad = math.rad(a)
   local dir = i == 1 and 1 or -1
   return dir * v * math.cos(rad), -v * math.sin(rad)
 end
 
 local function draw_aim()
-  local show = state == "aim"
+  local show = state == "aim" or state == "charge"
   for _, d in ipairs(aim_dots) do d:show(show) end
+  power_bar:show(show)
   if not show then return end
   local a = aim[turn]
   local x, y = launch_point(turn)
-  local vx, vy = launch_velocity(turn, a.a, a.p)
+  local vx, vy = launch_velocity(turn, a.a, 50, WEAPONS[1])
   local len = math.sqrt(vx * vx + vy * vy)
+  local p = state == "charge" and power or a.p
   for k, d in ipairs(aim_dots) do
-    local dist = k * (4 + a.p * 0.12)
+    local dist = k * (4 + p * 0.12)
     d:pos(math.floor((x + vx / len * dist) * SCALE) - 2, math.floor((y + vy / len * dist) * SCALE) - 2)
   end
+  power_bar:set(math.floor(p))
+end
+
+local function ammo_text(i, w)
+  local n = ammo[i][w]
+  if n < 0 then return WEAPONS[w].name end
+  return WEAPONS[w].name .. " x" .. n
 end
 
 local function update_hud()
-  hud_l:text(player_name(1) .. "  " .. wins[1])
-  hud_r:text(wins[2] .. "  " .. player_name(2))
+  hud_l:text(player_name(1) .. " " .. wins[1] .. "  " .. points[1] .. "pt")
+  hud_r:text(points[2] .. "pt  " .. wins[2] .. " " .. player_name(2))
   if wind == 0 then
     hud_wind:text("WIND calm")
   else
-    local arrows = string.rep(wind > 0 and ">" or "<", math.abs(wind) // 4 + 1)
-    hud_wind:text("WIND " .. arrows)
+    hud_wind:text("WIND " .. string.rep(wind > 0 and ">" or "<", math.abs(wind) // 4 + 1))
   end
   local a = aim[turn]
   if state == "aim" then
-    hud_aim:text(player_name(turn) .. ":  angle " .. a.a .. "   power " .. a.p)
+    hud_aim:text(player_name(turn) .. ": " .. ammo_text(turn, a.w) .. "  angle " .. a.a .. "  last " .. a.p)
+  elseif state == "charge" then
+    hud_aim:text(player_name(turn) .. ": " .. ammo_text(turn, a.w) .. "  power " .. math.floor(power))
   elseif state == "wait" then
     hud_aim:text(peer_name .. " is aiming...")
   elseif state == "cpu" then
     hud_aim:text("CPU is aiming...")
-  else
-    hud_aim:text("")
   end
   draw_aim()
 end
@@ -528,11 +409,16 @@ end
 
 local start_cpu_turn   -- defined below
 
+local function aim_hint()
+  if has_keys then return "UP/DN aim  L/R weapon  hold SELECT throw" end
+  return "UP/DN aim  L/R weapon  SELECT power, SELECT throw"
+end
+
 local function begin_turn()
   local who = controller(turn)
   if who == "human" then
     state = "aim"
-    ui.hint("UP/DN angle  LEFT/RIGHT power  SELECT throw")
+    ui.hint(aim_hint())
   elseif who == "cpu" then
     state = "cpu"
     ui.hint("CANCEL menu")
@@ -552,27 +438,34 @@ local function new_round()
   else
     seed = math.random(1, 2147483000)
   end
-  for i = 1, 2 do monkeys[i].alive = true end
-  wind = build_city(seed)
+  town = sky.build(city, seed)
+  wind = town.wind
+  for i = 1, 2 do
+    local m = monkeys[i]
+    m.x, m.y, m.alive = town.monkeys[i].x, town.monkeys[i].y, true
+    for w, wp in ipairs(WEAPONS) do ammo[i][w] = wp.ammo end
+    aim[i].w = 1
+  end
   set_play_visible(true)
   show_message(nil)
   cpu_misses = 0
-  last_landing = nil
   turn = (round % 2 == 1) and 1 or 2      -- players take turns going first
   begin_turn()
 end
 
 local function start_match()
   wins = { 0, 0 }
+  points = { 0, 0 }
   round = 0
   shots = 0
-  aim = { { a = 45, p = 50 }, { a = 45, p = 50 } }
+  aim = { { a = 45, p = 50, w = 1 }, { a = 45, p = 50, w = 1 } }
   new_round()
 end
 
 local function end_round(winner)
   wins[winner] = wins[winner] + 1
   update_hud()
+  local line = "Rounds " .. wins[1] .. "-" .. wins[2] .. "   Points " .. points[1] .. "-" .. points[2]
   if wins[winner] >= WIN_ROUNDS then
     state = "over"
     local mine = (mode == "cpu" and winner == 1) or (mode == "duo" and winner == me)
@@ -581,40 +474,107 @@ local function end_round(winner)
       match_wins[k] = (match_wins[k] or 0) + 1
       storage.set("match_wins", match_wins)
     end
+    local my_pts = mode == "duo" and points[me] or (mode == "cpu" and points[1] or math.max(points[1], points[2]))
+    if my_pts > best_points then
+      best_points = my_pts
+      storage.set("best_points", best_points)
+    end
     local title
     if mode == "hot" then title = "P" .. winner .. " WINS!"
     elseif mine then title = "YOU WIN!"
     else title = player_name(winner) .. " WINS" end
-    show_message(title, wins[1] .. " - " .. wins[2] .. "   SELECT again")
+    show_message(title, line)
     ui.hint("SELECT play again   CANCEL menu")
   else
     state = "between"
-    show_message(player_name(winner) .. (player_name(winner) == "YOU" and " WIN THE ROUND" or " WINS THE ROUND"),
-      wins[1] .. " - " .. wins[2])
-    timer.after(2200, function()
+    local who = player_name(winner)
+    show_message(who .. (who == "YOU" and " WIN THE ROUND" or " WINS THE ROUND"), line)
+    timer.after(2400, function()
       if state == "between" then new_round() end
     end)
   end
 end
 
 ---------------------------------------------------------------------------
--- Throwing and exploding
+-- Throws, explosions and points
 ---------------------------------------------------------------------------
--- Carves a hole in the city and returns which monkeys were caught.
-local function explode(x, y)
-  x, y = math.floor(x + 0.5), math.floor(y + 0.5)
-  for dy = -BLAST, BLAST do
-    local half = math.floor(math.sqrt(BLAST * BLAST - dy * dy) + 0.5)
-    city:rect(x - half, y + dy, half * 2 + 1, 1, SKY)
-  end
-  local hit = {}
+-- A monkey whose roof was blown away drops until it stands on something.
+local function settle_monkeys()
   for i = 1, 2 do
     local m = monkeys[i]
-    local cx, cy = m.x + 4, m.y + 5
-    local dx, dy = x - cx, y - cy
-    if m.alive and dx * dx + dy * dy <= (BLAST + 4) * (BLAST + 4) then hit[#hit + 1] = i end
+    if m.alive then
+      local fell = false
+      while m.y + 10 < GROUND_Y do
+        local under = false
+        for fx = m.x + 1, m.x + 6 do
+          if solid(fx, m.y + 10) then under = true break end
+        end
+        if under then break end
+        m.y = m.y + 1
+        fell = true
+      end
+      if fell then draw_monkey(i, false) end
+    end
   end
-  return hit
+end
+
+local function show_boom(x, y, blast)
+  for k, b in ipairs(booms) do
+    if not boom_busy[k] then
+      local sc = blast <= 4 and 1 or (blast <= 7 and 2 or 3)
+      b:scale(sc)
+      b:pos(math.floor(x * SCALE) - 6 * sc - 3, math.floor(y * SCALE) - 6 * sc - 3)
+      b:show(true)
+      boom_busy[k] = true
+      timer.after(350, function() b:show(false) boom_busy[k] = false end)
+      return
+    end
+  end
+end
+
+-- Blows a hole, scores the damage for the thrower and notes which monkeys
+-- were caught. Everything here only depends on the throw, so both badges
+-- get the same numbers.
+local function explode(x, y, blast)
+  x, y = math.floor(x + 0.5), math.floor(y + 0.5)
+  local t = throw_info
+  local bs = town.buildings
+  for dy = -blast, blast do
+    local yy = y + dy
+    if yy >= 0 and yy < GROUND_Y then
+      local half = math.floor(math.sqrt(blast * blast - dy * dy) + 0.5)
+      for xx = x - half, x + half do
+        if solid(xx, yy) then
+          local k = town.owner[xx]
+          local b = k and bs[k]
+          if b then
+            b.removed = b.removed + 1
+            t.pts = t.pts + (b.value > 0 and PTS_ICON_PIXEL * b.value or PTS_PIXEL)
+          end
+        end
+      end
+      city:rect(x - half, yy, half * 2 + 1, 1, sky.SKY)
+    end
+  end
+  for _, b in ipairs(bs) do
+    if not b.destroyed and b.total > 0 and b.removed >= b.total * DESTROYED_AT then
+      b.destroyed = true
+      if b.value > 0 then
+        t.pts = t.pts + PTS_ICON_DOWN * b.value
+        t.news[#t.news + 1] = b.name .. " DESTROYED!"
+        flash(0xFF, 0xD8, 0x4D, 300)
+      else
+        t.pts = t.pts + PTS_BLOCK_DOWN
+      end
+    end
+  end
+  for i = 1, 2 do
+    local m = monkeys[i]
+    local dx, dy = x - (m.x + 4), y - (m.y + 5)
+    local reach = blast + 2               -- the blast, plus the monkey's own size
+    if m.alive and dx * dx + dy * dy <= reach * reach then t.hit[i] = true end
+  end
+  show_boom(x, y, blast)
 end
 
 local function monkey_at(x, y, thrower, steps)
@@ -628,85 +588,138 @@ local function monkey_at(x, y, thrower, steps)
   return nil
 end
 
--- One physics step for a bomb table b. Returns nil while it flies, or
+-- One physics step for a projectile p. Returns nil while it flies, or
 -- "off" (left the screen at a side), "ground", "city" or "monkey".
-local function step_bomb(b, check)
-  b.vx = b.vx + wind * STEP
-  b.vy = b.vy + G * STEP
-  b.x = b.x + b.vx * STEP
-  b.y = b.y + b.vy * STEP
-  b.steps = b.steps + 1
-  if b.x < 0 or b.x >= CW then return "off" end
-  if b.y >= CH - 2 then return "ground" end
-  if b.y < 0 or not check then return nil end
-  if monkey_at(b.x, b.y, b.thrower, b.steps) then return "monkey" end
-  if solid(math.floor(b.x), math.floor(b.y)) then return "city" end
+local function step_projectile(p, check)
+  local wp = p.wp
+  p.vx = p.vx + wind * wp.wind * STEP
+  p.vy = p.vy + wp.grav * STEP
+  p.x = p.x + p.vx * STEP
+  p.y = p.y + p.vy * STEP
+  p.steps = p.steps + 1
+  if p.x < 0 or p.x >= CW then return "off" end
+  if p.y >= GROUND_Y then return "ground" end
+  if p.y < 0 or not check then return nil end
+  if monkey_at(p.x, p.y, p.thrower, p.steps) then return "monkey" end
+  if solid(math.floor(p.x), math.floor(p.y)) then return "city" end
   return nil
 end
 
-local function after_throw(hit)
+local function resolve_throw()
+  local t = throw_info
+  hide_projectiles()
+  draw_monkey(t.thrower, false)
+  settle_monkeys()
+
+  local hit = {}
+  for i = 1, 2 do
+    if t.hit[i] then
+      hit[#hit + 1] = i
+      monkeys[i].alive = false
+      draw_monkey(i, false)
+    end
+  end
+  if #hit > 0 and not t.hit[t.thrower] then t.pts = t.pts + PTS_MONKEY end
+  points[t.thrower] = points[t.thrower] + t.pts
+
+  local news = t.news[1]
+  if news then
+    show_popup(news .. "  +" .. t.pts)
+  elseif t.pts > 0 then
+    show_popup("+" .. t.pts .. " pts")
+  end
+  update_hud()
+
+  state = "boom"
   if #hit > 0 then
-    for _, i in ipairs(hit) do monkeys[i].alive = false draw_monkey(i, false) end
     flash(0xFF, 0x75, 0x4A, 400)
     -- If the thrower got caught in their own blast, the other monkey wins.
-    local thrower = bomb.thrower
-    local winner = thrower
-    for _, i in ipairs(hit) do
-      if i == thrower then winner = 3 - thrower end
-    end
-    timer.after(500, function() end_round(winner) end)
-    state = "boom"
+    local winner = t.hit[t.thrower] and (3 - t.thrower) or t.thrower
+    timer.after(700, function() end_round(winner) end)
     return
   end
+  if t.landed_near then cpu_misses = cpu_misses + 1 end
   turn = 3 - turn
-  state = "boom"
-  timer.after(450, function()
+  timer.after(600, function()
     if state == "boom" then begin_turn() end
   end)
 end
 
-local function land(kind)
-  local b = bomb
-  bomb_img:show(false)
-  top_marker:show(false)
-  draw_monkey(b.thrower, false)
-  if b.thrower == 2 then last_landing = b.x end
-  if kind == "off" then
-    after_throw({})
-    return
+-- A projectile has landed (or flown off a side).
+local function land(p, kind)
+  p.img:show(false)
+  if kind ~= "off" then
+    explode(p.x, p.y, p.wp.blast)
+    flash(0xFF, 0xD8, 0x4D, 80)
+    if p.wp.split then
+      -- The bunch bursts into bananas, flying out from just above the hole.
+      for k, v in ipairs(SPLIT_V) do
+        flying[#flying + 1] = {
+          x = p.x, y = p.y - p.wp.blast - 1, vx = v[1], vy = v[2],
+          steps = SAFE_STEPS + 1, thrower = p.thrower, wp = BANANA, img = banana_sprites[k],
+        }
+      end
+    end
   end
-  local hit = explode(b.x, b.y)
-  boom_img:pos(math.floor(b.x * SCALE) - 13, math.floor(b.y * SCALE) - 13)
-  boom_img:show(true)
-  timer.after(350, function() boom_img:show(false) end)
-  if #hit == 0 then flash(0xFF, 0xD8, 0x4D, 100) end
-  after_throw(hit)
+  throw_info.landed_near = true
 end
 
-local function throw(i, a, p)
+local function throw(i, a, pw, w)
+  local wp = WEAPONS[w]
+  if ammo[i][w] == 0 then w, wp = 1, WEAPONS[1] end
+  if ammo[i][w] > 0 then ammo[i][w] = ammo[i][w] - 1 end
   local x, y = launch_point(i)
-  local vx, vy = launch_velocity(i, a, p)
-  bomb = { x = x, y = y, vx = vx, vy = vy, steps = 0, thrower = i }
+  local vx, vy = launch_velocity(i, a, pw, wp)
+  local img = SPRITES[wp.art]
+  if wp.art == "rocket" and i == 2 then img = SPRITES.rocket_l end
+  flying = { { x = x, y = y, vx = vx, vy = vy, steps = 0, thrower = i, wp = wp, img = img } }
+  throw_info = { thrower = i, hit = {}, pts = 0, news = {} }
   shots = shots + 1
   acc = 0
   state = "fly"
   draw_monkey(i, true)
   for _, d in ipairs(aim_dots) do d:show(false) end
+  power_bar:show(false)
+  hud_aim:text(player_name(i) .. ": " .. wp.name .. "  angle " .. a .. "  power " .. pw)
   ui.hint(mode == "duo" and "CANCEL quit" or "CANCEL menu")
-  hud_aim:text(player_name(i) .. ":  angle " .. a .. "   power " .. p)
 end
 
-local function draw_bomb()
-  if not bomb then return end
-  if bomb.y < 0 then
-    bomb_img:show(false)
-    top_marker:pos(math.floor(bomb.x * SCALE) - 2, 0)
+local function draw_projectiles()
+  local high = nil
+  for _, p in ipairs(flying) do
+    if p.y < 0 then
+      p.img:show(false)
+      high = p
+    else
+      p.img:pos(math.floor(p.x * SCALE) - 5, math.floor(p.y * SCALE) - 5)
+      p.img:show(true)
+    end
+  end
+  if high then
+    top_marker:pos(math.floor(high.x * SCALE) - 2, 0)
     top_marker:show(true)
   else
     top_marker:show(false)
-    bomb_img:pos(math.floor(bomb.x * SCALE) - BOMB_W, math.floor(bomb.y * SCALE) - BOMB_H)
-    bomb_img:show(true)
   end
+end
+
+local function fly_tick(ms)
+  acc = acc + math.min(ms, 100)
+  while acc >= STEP_MS and state == "fly" do
+    acc = acc - STEP_MS
+    local still = {}
+    -- New bananas from a burst join the list during the loop: walk a copy.
+    local list = flying
+    flying = {}
+    for _, p in ipairs(list) do
+      local r = step_projectile(p, true)
+      if r then land(p, r) else still[#still + 1] = p end
+    end
+    for _, p in ipairs(flying) do still[#still + 1] = p end
+    flying = still
+    if #flying == 0 then resolve_throw() end
+  end
+  if state == "fly" then draw_projectiles() end
 end
 
 ---------------------------------------------------------------------------
@@ -714,13 +727,13 @@ end
 ---------------------------------------------------------------------------
 -- Where would a throw land, ignoring buildings (x where it drops to the
 -- target's height)? Coarse steps: this is the CPU "thinking", not the real throw.
-local function landing_x(a, p, target_y)
+local function landing_x(a, p, wp, target_y)
   local x, y = launch_point(2)
-  local vx, vy = launch_velocity(2, a, p)
+  local vx, vy = launch_velocity(2, a, p, wp)
   local dt = 1 / 40
   for _ = 1, 400 do
-    vx = vx + wind * dt
-    vy = vy + G * dt
+    vx = vx + wind * wp.wind * dt
+    vy = vy + wp.grav * dt
     x = x + vx * dt
     y = y + vy * dt
     if vy > 0 and y >= target_y then return x end
@@ -730,44 +743,55 @@ local function landing_x(a, p, target_y)
 end
 
 -- Does this throw get to the target without hitting a building first?
-local function clear_path(a, p)
+local function clear_path(a, p, wp)
   local x, y = launch_point(2)
-  local vx, vy = launch_velocity(2, a, p)
-  local b = { x = x, y = y, vx = vx, vy = vy, steps = 0, thrower = 2 }
+  local vx, vy = launch_velocity(2, a, p, wp)
+  local b = { x = x, y = y, vx = vx, vy = vy, steps = 0, thrower = 2, wp = wp }
   local target = monkeys[1]
   for _ = 1, 250 do
-    -- 3 steps at a time: good enough to see a building in the way
     local r
-    for _ = 1, 3 do
-      r = step_bomb(b, false)
+    for _ = 1, 3 do                       -- 3 steps at a time is enough to see a wall
+      r = step_projectile(b, false)
       if r then break end
     end
     if r then return false end
     if b.y >= 0 and monkey_at(b.x, b.y, 2, 999) == 1 then return true end
     if b.y >= 0 and solid(math.floor(b.x), math.floor(b.y)) then
-      return math.abs(b.x - (target.x + 4)) < 6
+      return math.abs(b.x - (target.x + 4)) < wp.blast
     end
   end
   return false
 end
 
+local function choose_weapon()
+  local roll = math.random()
+  local a = ammo[2]
+  if a[4] > 0 and roll < 0.15 then return 4 end
+  if a[3] > 0 and roll < 0.40 then return 3 end
+  if a[2] > 0 and roll < 0.60 then return 2 end
+  return 1
+end
+
 -- Plans one angle per tick (a coroutine), so the thinking never runs into
 -- the badge's per-callback instruction limit.
 local function plan()
+  local w = choose_weapon()
+  local wp = WEAPONS[w]
   local target = monkeys[1]
   local tx, ty = target.x + 4, target.y + 5
   local best, best_err = nil, math.huge
-  for a = 30, 75, 5 do
+  local angles = wp.grav < 50 and { 10, 20, 30, 40, 50, 60 } or { 30, 40, 50, 60, 65, 70, 75 }
+  for _, a in ipairs(angles) do
     -- More power lands further left (towards the target): binary search.
     local lo, hi = 5, 100
     for _ = 1, 14 do
       local mid = (lo + hi) / 2
-      if landing_x(a, mid, ty) > tx then lo = mid else hi = mid end
+      if landing_x(a, mid, wp, ty) > tx then lo = mid else hi = mid end
     end
     local p = (lo + hi) / 2
-    local err = math.abs(landing_x(a, p, ty) - tx)
+    local err = math.abs(landing_x(a, p, wp, ty) - tx)
     coroutine.yield()
-    if err < 3 and clear_path(a, p) then best = { a = a, p = p } break end
+    if err < 3 and clear_path(a, p, wp) then best = { a = a, p = p } break end
     if err < best_err then best, best_err = { a = a, p = p }, err end
     coroutine.yield()
   end
@@ -775,24 +799,23 @@ local function plan()
   local spread = level == 1 and 15 * (0.78 ^ cpu_misses) or 5 * (0.55 ^ cpu_misses)
   local p = clamp(math.floor(best.p + (math.random() * 2 - 1) * spread + 0.5), 1, 100)
   local a = clamp(best.a + math.random(-2, 2), 5, 85)
-  return a, p
+  return a, p, w
 end
 
 function start_cpu_turn()
   cpu_plan = coroutine.create(plan)
-  if last_landing then cpu_misses = cpu_misses + 1 end
 end
 
 local function cpu_tick()
   if not cpu_plan then return end
-  local ok, a, p = coroutine.resume(cpu_plan)
+  local ok, a, p, w = coroutine.resume(cpu_plan)
   if not ok then error(a) end
   if coroutine.status(cpu_plan) == "dead" then
     cpu_plan = nil
-    aim[2].a, aim[2].p = a, p
-    update_hud()
-    timer.after(600, function()
-      if state == "cpu" then throw(2, a, p) end
+    aim[2].a, aim[2].p, aim[2].w = a, p, w
+    hud_aim:text("CPU: " .. WEAPONS[w].name)
+    timer.after(700, function()
+      if state == "cpu" then throw(2, a, p, w) end
     end)
   end
 end
@@ -813,7 +836,7 @@ local function net_tick()
   if now - last_keepalive >= KEEPALIVE_EVERY then
     if radio_send(peer, { t = "k", g = game_id, n = shots }) then last_keepalive = now end
   end
-  if (state ~= "over") and now - last_heard > LOST_AFTER then
+  if state ~= "over" and now - last_heard > LOST_AFTER then
     peer = nil
     state = "over"
     set_play_visible(true)
@@ -824,9 +847,10 @@ end
 
 local function local_throw()
   local a = aim[turn]
-  throw(turn, a.a, a.p)
+  a.p = clamp(math.floor(power + 0.5), 1, 100)
+  throw(turn, a.a, a.p, a.w)
   if mode == "duo" then
-    pending = { t = "th", g = game_id, n = shots, a = a.a, p = a.p }
+    pending = { t = "th", g = game_id, n = shots, a = a.a, p = a.p, w = a.w }
     send_throw()
   end
 end
@@ -834,10 +858,19 @@ end
 -- The other badge's throw number n (count of throws including it).
 local function remote_throw(m)
   if m.n == shots + 1 and state == "wait" then
-    aim[turn].a, aim[turn].p = m.a, m.p
-    throw(turn, m.a, m.p)
+    aim[turn].a, aim[turn].p, aim[turn].w = m.a, m.p, m.w or 1
+    throw(turn, m.a, m.p, m.w or 1)
   elseif m.n == shots + 1 then
     queued = m                          -- still finishing the last throw here
+  end
+end
+
+-- LEFT/RIGHT: the next weapon that still has ammo.
+local function cycle_weapon(dir)
+  local a = aim[turn]
+  for _ = 1, #WEAPONS do
+    a.w = (a.w - 1 + dir) % #WEAPONS + 1
+    if ammo[turn][a.w] ~= 0 then return end
   end
 end
 
@@ -851,7 +884,7 @@ local function menu_items()
   return {
     { title = "1 player: Easy", right = right(match_wins[1] or 0) },
     { title = "1 player: Hard", right = right(match_wins[2] or 0) },
-    { title = "2 players: pass the badge" },
+    { title = "2 players: pass the badge", right = best_points > 0 and ("best " .. best_points) or nil },
     { title = "2 players: 2 badges", right = right(match_wins[3] or 0) },
   }
 end
@@ -859,13 +892,18 @@ end
 local function open_menu()
   state = "menu"
   peer, pending, queued = nil, nil, nil
+  flying = {}
   show_message(nil)
   if has_led then led.off() end
   -- A fresh skyline behind the menu.
-  wind = build_city(math.random(1, 2147483000))
+  town = sky.build(city, math.random(1, 2147483000))
+  for i = 1, 2 do
+    monkeys[i].x, monkeys[i].y, monkeys[i].alive = town.monkeys[i].x, town.monkeys[i].y, true
+  end
   set_play_visible(true)
   for _, l in ipairs(hud) do l:show(false) end
-  menu_panel = ui.rect(0, 0, W, 36, { color = 0x120B2B })
+  power_bar:show(false)
+  menu_panel = ui.rect(0, 0, W, 36, { color = sky.SKY })
   menu_title = ui.label(0, 8, "SOLANA MONKEY BOMB", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
   menu = ui.list(40, 52, W - 80, 144, menu_items(), {
     on_select = function(i)
@@ -1004,7 +1042,7 @@ function on_mesh(from, m)
     if mode == "duo" and from == peer and m.g == game_id and state ~= "over" then
       peer = nil
       state = "over"
-      bomb_img:show(false)
+      hide_projectiles()
       show_message("PLAYER LEFT", peer_name .. " quit the game")
       ui.hint("SELECT lobby   CANCEL menu")
     end
@@ -1015,20 +1053,22 @@ function on_tick(ms)
   now = now + ms
   if mode == "duo" and state ~= "menu" and state ~= "lobby" then net_tick() end
 
-  if state == "cpu" then
+  if state == "charge" then
+    power = math.min(100, power + ms * 100 / CHARGE_MS)
+    local held = has_keys and sys.keys().select
+    if (has_keys and not held) or power >= 100 then
+      local_throw()
+    else
+      update_hud()
+    end
+  elseif state == "cpu" then
     cpu_tick()
   elseif state == "wait" and queued then
     local m = queued
     queued = nil
     remote_throw(m)
   elseif state == "fly" then
-    acc = acc + math.min(ms, 100)
-    while acc >= STEP_MS and state == "fly" do
-      acc = acc - STEP_MS
-      local r = step_bomb(bomb, true)
-      if r then land(r) end
-    end
-    if state == "fly" then draw_bomb() end
+    fly_tick(ms)
   end
 end
 
@@ -1054,20 +1094,27 @@ function on_key(key, rep)
     if rep then return true end
     if mode == "duo" then leave_duo() end
     cpu_plan = nil
-    bomb = nil
+    flying = {}
     open_menu()
     return true
   end
 
   if state == "aim" then
     local a = aim[turn]
-    local step = rep and 2 or 1
-    if key == "up" then a.a = clamp(a.a + step, 0, 90)
-    elseif key == "down" then a.a = clamp(a.a - step, 0, 90)
-    elseif key == "right" then a.p = clamp(a.p + step, 1, 100)
-    elseif key == "left" then a.p = clamp(a.p - step, 1, 100)
-    elseif key == "select" and not rep then local_throw() return true end
+    if key == "up" then a.a = clamp(a.a + (rep and 2 or 1), 0, 90)
+    elseif key == "down" then a.a = clamp(a.a - (rep and 2 or 1), 0, 90)
+    elseif (key == "right" or key == "left") and not rep then cycle_weapon(key == "right" and 1 or -1)
+    elseif key == "select" and not rep then
+      state = "charge"                  -- the power meter starts filling
+      power = 0
+    end
     update_hud()
+    return true
+  end
+
+  if state == "charge" then
+    -- Without sys.keys (older badges) a second SELECT throws.
+    if key == "select" and not has_keys and not rep then local_throw() end
     return true
   end
 
