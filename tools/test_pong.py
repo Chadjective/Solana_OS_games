@@ -41,7 +41,10 @@ def autopilot(sim, skill):
     if not balls:
         sim.hold([])
         return
-    target = balls[0].y + 8 + random.uniform(-skill, skill)
+    # A mistake that lasts a while (like a person misjudging a shot).
+    if not hasattr(sim, "aim_err") or random.random() < 0.02:
+        sim.aim_err = random.uniform(-skill, skill)
+    target = balls[0].y + 8 + sim.aim_err
     centre = pad.y + 22
     if target < centre - 4:
         sim.hold(["up"])

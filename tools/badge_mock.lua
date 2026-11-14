@@ -55,6 +55,7 @@ function ui.list(x, y, w, h, items, opts)
   return o
 end
 function ui.hint(t) M.hint = t end
+function ui.confirm(text, cb) M.confirm = { text = text, cb = cb } end
 function ui.toast(t) M.toasts[#M.toasts + 1] = t end
 function ui.clear() M.objects = {} end
 
@@ -76,6 +77,15 @@ function storage.get(k) return store[k] end
 function storage.set(k, v) store[k] = v end
 function storage.remove(k) store[k] = nil end
 
+-- Mesh: messages go to M.outbox; the driver (tools/sim.py) delivers them.
+M.outbox, M.peers, M.badge_id = {}, {}, "AAAAAA"
+mesh = {}
+function mesh.send(to, msg) M.outbox[#M.outbox + 1] = { to = to, msg = msg, at = M.now } end
+function mesh.nearby() return M.peers end
+badge = {}
+function badge.id() return M.badge_id end
+function badge.owner() return nil end
+
 sys = {}
 function sys.millis() return M.now end
 function sys.keys() return M.keys end
@@ -92,6 +102,16 @@ function require(name)
 end
 
 -- Driver helpers ------------------------------------------------------------
+function M.answer(yes)
+  local c = M.confirm
+  M.confirm = nil
+  if c then c.cb(yes) end
+end
+
+function M.deliver(from, msg)
+  if on_mesh then on_mesh(from, msg) end
+end
+
 function M.press(key, rep)
   local l = M.focus_list
   if l and not l.removed and l.visible then
