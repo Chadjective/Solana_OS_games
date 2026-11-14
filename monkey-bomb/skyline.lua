@@ -22,6 +22,11 @@ S.STAR = 0x5A5488
 S.MOON = 0xE8E4C9
 S.MOON_SHADE = 0xBDB79A
 S.GROUND = 0x1B1B24
+S.WATER = 0x1E3A6E                     -- the Thames (not solid: bombs splash, monkeys sink)
+S.WATER_LIGHT = 0x3A66B0
+S.SNOW = 0xF4F6FF
+S.RIVER_W = 26
+local BRIDGES = { "LONDON BRIDGE", "WATERLOO BRIDGE", "BLACKFRIARS BRIDGE", "MILLENNIUM BRIDGE" }
 local CW, CH = S.CW, S.CH
 local GROUND_Y = CH - 2                -- first row of the ground
 local LIT, DARK_WIN = 0xF2C14E, 0x262A3A
@@ -51,6 +56,7 @@ end
 -- Drawing helpers (set up by S.build)
 ---------------------------------------------------------------------------
 local city, cur
+local snowing = false
 
 local function body(x, y, w, h, c)
   if w <= 0 or h <= 0 then return end
@@ -88,6 +94,7 @@ local function block(r, x, w, h)
   local top = GROUND_Y - h
   body(x, top, w - 1, h, BODIES[r.int(1, #BODIES)])
   windows(r, x, top, w - 1)
+  if snowing then paint(x, top, w - 1, 1, S.SNOW) end
   return top
 end
 
@@ -485,8 +492,26 @@ local function new_building(name, value, x0, x1)
   return { name = name, value = value, x0 = x0, x1 = x1, total = 0, removed = 0, destroyed = false }
 end
 
--- Returns { wind, monkeys = {{x, y}, {x, y}}, buildings = {...},
--- owner = {[column] = building index} }.
+-- The Thames with a bridge over it, w wide from column x. The water isn't
+-- solid; the bridge (deck, railing and piers) is, and can be blown up.
+local function river(r, x, w)
+  local surface = GROUND_Y - 3
+  paint(x, surface, w, CH - surface, S.WATER)
+  for px = x + r.int(0, 2), x + w - 1, 3 do dot(px, surface, S.WATER_LIGHT) end
+  for _ = 1, 6 do dot(r.int(x, x + w - 1), r.int(surface + 1, CH - 1), S.WATER_LIGHT) end
+  local deck = GROUND_Y - r.int(9, 14)
+  local DECK, PIER = 0x7A6A55, 0x5E5246
+  body(x, deck, w, 2, DECK)
+  for px = x, x + w - 1, 3 do body(px, deck - 1, 1, 1, 0xA89878) end
+  body(x + 6, deck + 2, 3, CH - deck - 2, PIER)
+  body(x + w - 9, deck + 2, 3, CH - deck - 2, PIER)
+  return { x0 = x, x1 = x + w - 1, surface = surface }
+end
+
+S.WEATHERS = { "clear", "rain", "snow", "fog" }
+
+-- Returns { wind, weather, river (or nil), monkeys = {{x, y}, {x, y}},
+-- buildings = {...}, owner = {[column] = building index} }.
 function S.build(canvas, seed)
   city = canvas
   cur = nil
@@ -510,6 +535,12 @@ function S.build(canvas, seed)
   paint(mx + 1, my - 2, 2, 2, S.MOON_SHADE)
   dot(mx - 2, my + 2, S.MOON_SHADE)
 
+  -- This round's weather: clear 40%, rain 25%, snow 15%, fog 20%.
+  local roll = r.int(1, 100)
+  local weather = roll <= 40 and "clear" or (roll <= 65 and "rain" or (roll <= 80 and "snow" or "fog"))
+  snowing = weather == "snow"
+  local has_river = r.chance(0.5)
+
   -- Left filler, the left monkey's block, the middle, the right monkey's block, right filler.
   local x = 0
   local fill_l, fill_r = r.int(8, 13), r.int(8, 13)
@@ -525,6 +556,7 @@ function S.build(canvas, seed)
   local rw = r.int(15, 18)
   local right_start = CW - fill_r - rw
   local mid_w = right_start - x
+  if has_river then mid_w = mid_w - S.RIVER_W end
 
   -- Shuffle the landmarks and take as many as fit, leaving room for a
   -- block or a gap between them.
@@ -547,7 +579,14 @@ function S.build(canvas, seed)
 
   local gap = mid_w - used
   local slots = #picks + 1
+  local river_slot = has_river and r.int(1, slots) or 0
+  local thames
   for i = 1, slots do
+    if i == river_slot then
+      start(BRIDGES[r.int(1, #BRIDGES)], 1, x, S.RIVER_W)
+      thames = river(r, x, S.RIVER_W)
+      x = x + S.RIVER_W
+    end
     local gw
     if i == slots then gw = gap
     else gw = math.min(gap, math.max(3, math.floor(gap / (slots - i + 1)) + r.int(-2, 2))) end
@@ -572,9 +611,13 @@ function S.build(canvas, seed)
   block(r, right_start + rw, fill_r, r.int(18, 34))
   cur = nil
   city:rect(0, GROUND_Y, CW, 2, S.GROUND)
+  if thames then paint(thames.x0, GROUND_Y, S.RIVER_W, 2, S.WATER) end
+  snowing = false
 
   return {
     wind = r.int(-12, 12),
+    weather = weather,
+    river = thames,
     monkeys = { { x = monkey_l, y = roof_l - 10 }, { x = monkey_r, y = roof_r - 10 } },
     buildings = buildings,
     owner = owner,

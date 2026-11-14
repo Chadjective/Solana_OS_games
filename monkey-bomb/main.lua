@@ -1,6 +1,8 @@
 -- Solana Monkey Bomb (SMB): two monkeys on the London skyline take turns
--- lobbing weapons at each other. Aim, pick a weapon, hold SELECT to charge
--- the throw, mind the wind, and blow holes in London's landmarks for points.
+-- lobbing weapons at each other. Walk and climb to a good spot, pick up
+-- what's lying on the rooftops, aim, pick a weapon, hold SELECT to charge the
+-- throw, mind the wind and the weather, and blow holes in London's landmarks
+-- for points. A monkey out of health (or in the Thames) loses the round.
 -- First to win 3 rounds wins the match.
 --
 -- Modes: 1 player vs a CPU monkey (Easy / Hard), 2 players passing one
@@ -27,24 +29,38 @@ local CHARGE_MS = 1500               -- holding SELECT from 0 to full power
 
 -- Moving about: each turn starts with some energy to walk, climb and jump.
 local ENERGY = 70                    -- per turn
-local WALK_COST, CLIMB_COST, JUMP_COST = 1, 2, 8
-local WALK_MS, CLIMB_MS = 40, 70     -- ms per pixel walked / climbed
-local FALL_SPEED = 90                -- canvas px/s
-local JUMP_VX, JUMP_VY, JUMP_G = 38, -62, 170
+local MV = {
+  WALK_COST = 1, CLIMB_COST = 2, JUMP_COST = 8,   -- energy
+  WALK_MS = 40, CLIMB_MS = 70,                    -- ms per pixel walked / climbed
+  FALL_SPEED = 90,                                -- canvas px/s
+  JUMP_VX = 38, JUMP_VY = -62, JUMP_G = 170,
+}
 
 -- Points
-local PTS_PIXEL = 1                  -- per pixel of an ordinary block destroyed
-local PTS_ICON_PIXEL = 1             -- times a landmark's value (1..3), per pixel
 local DESTROYED_AT = 0.55            -- share of a building gone to count as destroyed
-local PTS_BLOCK_DOWN = 20
-local PTS_ICON_DOWN = 100            -- times the landmark's value
-local PTS_MONKEY = 250
+local PTS = {
+  PIXEL = 1,                         -- per pixel of an ordinary block destroyed
+  ICON_PIXEL = 1,                    -- times a landmark's value (1..3), per pixel
+  BLOCK_DOWN = 20,
+  ICON_DOWN = 100,                   -- times the landmark's value
+  KO = 250,                          -- knocking the other monkey out
+  HP = 2,                            -- per point of damage to the other monkey
+}
+
+-- Health
+local MAX_HP = 100
+local HEALTH_PACK = 35
+
+-- Weather: rain makes throws heavier, snow makes walking harder, fog hides
+-- the aiming guide beyond its first dots.
+local WX = { RAIN_GRAV = 12, SNOW_EXTRA = 1 }   -- SNOW_EXTRA: energy per pixel walked or climbed
+
+-- Pickups lying on the rooftops at the start of each round.
+local ITEM_KINDS = { "health", "umbrella", "crate" }
+local ITEMS_PER_ROUND = 3
 
 -- Mesh radio (two-badge games).
-local HELLO_EVERY = 1200
-local KEEPALIVE_EVERY = 2000
-local RESEND_EVERY = 700
-local LOST_AFTER = 15000
+local NET = { HELLO_EVERY = 1200, KEEPALIVE_EVERY = 2000, RESEND_EVERY = 700, LOST_AFTER = 15000 }
 
 local has_led = led ~= nil
 local has_mesh = mesh ~= nil
@@ -86,8 +102,11 @@ local ART = {
   banana = { "y...y", ".yyy." },
   rocket = { "y.....", "oqqqqm", "y....." },
   coconut = { "..y..", ".ccc.", "cdcdc", "ccccc", "ccdcc", ".ccc." },
+  health = { "wwwwww", "wwrrww", "wrrrrw", "wrrrrw", "wwrrww", "wwwwww" },
+  umbrella = { "..mm..", ".mmmm.", "mmmmmm", "...k..", "...k..", "..kk.." },
+  crate = { "dddddd", "dcpgcd", "dcccdd", "ddcccd", "dcgpcd", "dddddd" },
 }
-local ART_PAL = { palette = { q = 0x9AA0A6, c = 0x6B4423, d = 0x3B2412 }, scale = SCALE }
+local ART_PAL = { palette = { q = 0x9AA0A6, c = 0x6B4423, d = 0x3B2412, r = 0xE5383B }, scale = SCALE }
 
 local function mirror(rows, width)
   local out = {}
@@ -119,15 +138,16 @@ end
 -- Weapons
 --   speed: launch speed per point of power; grav: gravity (canvas px/s^2);
 --   wind: how much the wind pushes it; blast: explosion radius (canvas px);
+--   dmg: damage to a monkey right at the centre of the blast (less further out);
 --   ammo: per player per round (-1 = unlimited); split: bananas it bursts into.
 ---------------------------------------------------------------------------
 local WEAPONS = {
-  { name = "BOMB",         ammo = -1, speed = 1.35, grav = 80, wind = 1.0, blast = 6,  art = "bomb" },
-  { name = "BANANA BUNCH", ammo = 2,  speed = 1.35, grav = 80, wind = 1.0, blast = 4,  art = "bunch", split = 5 },
-  { name = "BAZOOKA",      ammo = 3,  speed = 1.9,  grav = 28, wind = 1.6, blast = 7,  art = "rocket" },
-  { name = "COCONUT",      ammo = 1,  speed = 1.25, grav = 90, wind = 0.7, blast = 11, art = "coconut" },
+  { name = "BOMB",         ammo = -1, speed = 1.35, grav = 80, wind = 1.0, blast = 6,  dmg = 40, art = "bomb" },
+  { name = "BANANA BUNCH", ammo = 2,  speed = 1.35, grav = 80, wind = 1.0, blast = 4,  dmg = 15, art = "bunch", split = 5 },
+  { name = "BAZOOKA",      ammo = 3,  speed = 1.9,  grav = 28, wind = 1.6, blast = 7,  dmg = 45, art = "rocket" },
+  { name = "COCONUT",      ammo = 1,  speed = 1.25, grav = 90, wind = 0.7, blast = 11, dmg = 65, art = "coconut" },
 }
-local BANANA = { name = "banana", speed = 1, grav = 80, wind = 1.0, blast = 4, art = "banana" }
+local BANANA = { name = "banana", speed = 1, grav = 80, wind = 1.0, blast = 4, dmg = 18, art = "banana" }
 -- Where the bananas of a bunch fly when it bursts (canvas px/s): fixed, so
 -- both badges agree.
 local SPLIT_V = { { -45, -55 }, { -22, -75 }, { 0, -85 }, { 22, -75 }, { 45, -55 } }
@@ -141,7 +161,7 @@ local city = ui.canvas(0, 0, CW, CH, { scale = SCALE, color = "bg" })
 -- Colours as the canvas stores them (the screen has 65,536 colours, so a
 -- colour can come back slightly different): anything in EMPTY is sky.
 local EMPTY = {}
-for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE }) do
+for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE, sky.WATER, sky.WATER_LIGHT }) do
   city:pixel(0, 0, c)
   EMPTY[city:get(0, 0)] = true
 end
@@ -157,6 +177,11 @@ for i = 1, 2 do
     stand_l = ui.image(0, 0, mirror(MONKEY_STAND, 8), pal), throw_l = ui.image(0, 0, mirror(MONKEY_THROW, 8), pal),
   }
   for _, img in pairs(m.img) do img:show(false) end
+  m.hp, m.umbrella = MAX_HP, false
+  m.bar_bg = ui.rect(0, 0, 14, 3, { color = 0x2A2A3A })
+  m.bar = ui.rect(0, 0, 14, 3, { color = "green" })
+  m.brolly = ui.image(0, 0, { "..mm..", ".mmmm.", "mmmmmm", "...k..", "..kk.." }, { scale = 1 })
+  m.bar_bg:show(false) m.bar:show(false) m.brolly:show(false)
   monkeys[i] = m
 end
 
@@ -175,6 +200,32 @@ local SPRITES = {
 }
 local banana_sprites = {}
 for i = 1, #SPLIT_V do banana_sprites[i] = sprite(ART.banana) end
+
+-- Pickups: one picture per kind per slot, shown for whichever kind lies there.
+local items = {}         -- this round's: { x, y, kind, weapon, alive, img }
+local item_imgs = {}
+for k = 1, ITEMS_PER_ROUND do
+  item_imgs[k] = {}
+  for _, kind in ipairs(ITEM_KINDS) do item_imgs[k][kind] = sprite(ART[kind]) end
+end
+
+-- Weather: falling drops or flakes, and fog banks.
+local drops = {}
+for i = 1, 18 do
+  drops[i] = { r = ui.rect(0, 0, 1, 5, { color = 0x6F86C8 }), x = 0, y = 0 }
+  drops[i].r:show(false)
+end
+local fog_rows = {}
+for row = 1, 9 do
+  local line = {}
+  for col = 1, 160 do line[col] = ((col + row) % 2 == 0 and row % 3 ~= 0) and "z" or "." end
+  fog_rows[row] = table.concat(line)
+end
+local fogs = {}
+for i = 1, 3 do
+  fogs[i] = ui.image(0, 0, fog_rows, { palette = { z = 0x8B86A8 }, scale = SCALE })
+  fogs[i]:show(false)
+end
 
 local booms, boom_busy = {}, {}
 local BOOM_ROWS = explosion_rows()
@@ -230,8 +281,11 @@ local acc = 0            -- ms not yet simulated
 local flying = {}        -- projectiles in the air
 local throw_info = nil   -- what this throw has done so far: { thrower, hit = {}, pts, news }
 local shots = 0          -- throws so far this match (both badges count the same)
-local cpu_plan = nil
-local cpu_misses = 0
+-- The CPU monkey: its thinking (a coroutine), misses this round, where it's walking to.
+local CPU = { plan = nil, misses = 0, goal = nil, phase = "scout" }
+local weather = "clear"
+local river = nil        -- this round's Thames: { x0, x1, surface } or nil
+local picked = {}        -- items picked up this turn (sent with the throw)
 local popup_timer = nil
 
 -- Two badges
@@ -245,9 +299,8 @@ local sent_at = { -100000, -100000, -100000, -100000 }
 
 -- Menus
 local menu, menu_title, menu_panel = nil, nil, nil
-local lobby_list, lobby_title, lobby_info = nil, nil, nil
-local lobby_ids, seen = {}, {}
-local invited, asking, hello_timer = nil, nil, nil
+-- The two-badge lobby: its screen objects, who we've heard, who we invited.
+local LB = { list = nil, title = nil, info = nil, ids = {}, seen = {}, invited = nil, asking = nil, hello_timer = nil }
 
 local match_wins = storage.get("match_wins") or { 0, 0, 0 }   -- easy, hard, two badges
 local best_points = storage.get("best_points") or 0
@@ -334,6 +387,62 @@ local function draw_monkey(i, throwing)
       img:show(false)
     end
   end
+  -- health bar above the head, and the umbrella if it has one
+  local sx, sy = m.x * SCALE + 1, m.y * SCALE - 5
+  m.bar_bg:pos(sx, sy)
+  m.bar_bg:show(m.alive)
+  local w = math.max(1, math.floor(14 * m.hp / MAX_HP + 0.5))
+  m.bar:size(math.min(14, w), 3)
+  m.bar:color(m.hp > 60 and "green" or (m.hp > 30 and "yellow" or "orange"))
+  m.bar:pos(sx, sy)
+  m.bar:show(m.alive)
+  m.brolly:pos(sx + 4, sy - 7)
+  m.brolly:show(m.alive and m.umbrella)
+end
+
+local function draw_items()
+  for k, it in ipairs(items) do
+    for kind, img in pairs(item_imgs[k]) do
+      if kind == it.kind and it.alive then
+        img:pos(it.x * SCALE, it.y * SCALE)
+        img:show(true)
+      else
+        img:show(false)
+      end
+    end
+  end
+end
+
+local function hide_items()
+  for k = 1, ITEMS_PER_ROUND do
+    for _, img in pairs(item_imgs[k]) do img:show(false) end
+  end
+end
+
+local function hide_weather()
+  for _, d in ipairs(drops) do d.r:show(false) end
+  for _, f in ipairs(fogs) do f:show(false) end
+end
+
+-- Moves the rain, snow and fog along (just for show).
+local function weather_tick(ms)
+  if weather == "rain" or weather == "snow" then
+    local fall = weather == "rain" and 0.35 or 0.05
+    local drift = wind * (weather == "rain" and 0.01 or 0.006)
+    for _, d in ipairs(drops) do
+      d.y = d.y + fall * ms
+      d.x = d.x + drift * ms
+      if d.y > 202 or d.x < -4 or d.x > W + 4 then
+        d.x, d.y = math.random(0, W), math.random(-30, 0)
+      end
+      d.r:pos(math.floor(d.x), math.floor(d.y))
+    end
+  elseif weather == "fog" then
+    for i, f in ipairs(fogs) do
+      local t = now / (2400 + i * 700)
+      f:pos(math.floor(math.sin(t) * 20) - 20, 40 + i * 44)
+    end
+  end
 end
 
 local function hide_projectiles()
@@ -346,11 +455,14 @@ local function set_play_visible(on)
   city:show(on)
   for i = 1, 2 do
     if on then draw_monkey(i, false) else
-      for _, img in pairs(monkeys[i].img) do img:show(false) end
+      local m = monkeys[i]
+      for _, img in pairs(m.img) do img:show(false) end
+      m.bar:show(false) m.bar_bg:show(false) m.brolly:show(false)
     end
   end
   for _, l in ipairs(hud) do l:show(on) end
   popup:show(false)
+  if on then draw_items() else hide_items() hide_weather() end
   if not on then
     power_bar:show(false)
     hide_projectiles()
@@ -384,6 +496,7 @@ local function draw_aim()
   local len = math.sqrt(vx * vx + vy * vy)
   local p = state == "charge" and power or a.p
   for k, d in ipairs(aim_dots) do
+    if weather == "fog" and k > 2 then d:show(false) end     -- the fog hides the rest
     local dist = k * (4 + p * 0.12)
     d:pos(math.floor((x + vx / len * dist) * SCALE) - 2, math.floor((y + vy / len * dist) * SCALE) - 2)
   end
@@ -399,10 +512,11 @@ end
 local function update_hud()
   hud_l:text(player_name(1) .. " " .. wins[1] .. "  " .. points[1] .. "pt")
   hud_r:text(points[2] .. "pt  " .. wins[2] .. " " .. player_name(2))
+  local wx = weather == "clear" and "" or (weather:upper() .. "  ")
   if wind == 0 then
-    hud_wind:text("WIND calm")
+    hud_wind:text(wx .. "WIND calm")
   else
-    hud_wind:text("WIND " .. string.rep(wind > 0 and ">" or "<", math.abs(wind) // 4 + 1))
+    hud_wind:text(wx .. "WIND " .. string.rep(wind > 0 and ">" or "<", math.abs(wind) // 4 + 1))
   end
   local a = aim[turn]
   if state == "move" then
@@ -413,10 +527,45 @@ local function update_hud()
     hud_aim:text(player_name(turn) .. ": " .. ammo_text(turn, a.w) .. "  power " .. math.floor(power))
   elseif state == "wait" then
     hud_aim:text(peer_name .. " is aiming...")
-  elseif state == "cpu" then
-    hud_aim:text("CPU is aiming...")
+  elseif state == "cpu" or state == "cpumove" then
+    hud_aim:text(state == "cpumove" and "CPU is on the move..." or "CPU is aiming...")
   end
   draw_aim()
+end
+
+---------------------------------------------------------------------------
+-- Pickups
+---------------------------------------------------------------------------
+-- Lays this round's pickups on top of buildings. Uses its own random
+-- numbers from the round's seed, so two badges place the same items.
+local function place_items(seed)
+  local r = sky.new_rng(seed + 17)
+  items = {}
+  local starts = { town.monkeys[1].x, town.monkeys[2].x }
+  local tries = 0
+  while #items < ITEMS_PER_ROUND and tries < 30 do
+    tries = tries + 1
+    local col = r.int(6, CW - 12)
+    local ok = math.abs(col - starts[1]) > 10 and math.abs(col - starts[2]) > 10
+    if river and col + 6 >= river.x0 - 1 and col <= river.x1 + 1 then ok = false end
+    for _, it in ipairs(items) do
+      if math.abs(it.x - col) < 10 then ok = false end
+    end
+    if ok then
+      local top = nil
+      for row = 4, GROUND_Y - 1 do
+        local hit = false
+        for c = col, col + 5 do
+          if solid(c, row) then hit = true break end
+        end
+        if hit then top = row break end
+      end
+      if top and top > 24 then             -- not on a spire tip, under the score
+        local kind = ITEM_KINDS[r.int(1, #ITEM_KINDS)]
+        items[#items + 1] = { x = col, y = top - 6, kind = kind, weapon = r.int(2, #WEAPONS), alive = true }
+      end
+    end
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -439,10 +588,11 @@ local MOVE_HINT = "L/R walk + climb   UP jump   SELECT aim"
 
 local function begin_turn()
   local who = controller(turn)
+  picked = {}
+  energy = ENERGY
+  jump = nil
   if who == "human" then
     state = "move"
-    energy = ENERGY
-    jump = nil
     ui.hint(MOVE_HINT)
   elseif who == "cpu" then
     state = "cpu"
@@ -465,17 +615,28 @@ local function new_round()
   end
   town = sky.build(city, seed)
   wind = town.wind
+  weather = town.weather
+  river = town.river
+  place_items(seed)
   for i = 1, 2 do
     local m = monkeys[i]
     m.x, m.y, m.alive = town.monkeys[i].x, town.monkeys[i].y, true
     m.face = i == 1 and 1 or -1
     m.cling = false
+    m.hp, m.umbrella = MAX_HP, false
     for w, wp in ipairs(WEAPONS) do ammo[i][w] = wp.ammo end
     aim[i].w = 1
   end
   set_play_visible(true)
   show_message(nil)
-  cpu_misses = 0
+  hide_weather()
+  for _, d in ipairs(drops) do
+    d.x, d.y = math.random(0, W), math.random(0, 200)
+    if weather == "snow" then d.r:size(2, 2) d.r:color(0xF4F6FF) else d.r:size(1, 5) d.r:color(0x6F86C8) end
+    d.r:show(weather == "rain" or weather == "snow")
+  end
+  for _, f in ipairs(fogs) do f:show(weather == "fog") end
+  CPU.misses = 0
   turn = (round % 2 == 1) and 1 or 2      -- players take turns going first
   begin_turn()
 end
@@ -567,24 +728,83 @@ end
 -- long it takes, or nil when there's no way on.
 local function walk_step(m, dir)
   m.face = dir
+  local extra = weather == "snow" and WX.SNOW_EXTRA or 0
   if body_free(m.x + dir, m.y) then
     m.x = m.x + dir
     m.cling = false
-    return WALK_COST, WALK_MS
+    return MV.WALK_COST + extra, MV.WALK_MS
   end
   for up = 1, 3 do
     if body_free(m.x + dir, m.y - up) then
       m.x, m.y = m.x + dir, m.y - up
       m.cling = false
-      return WALK_COST + up, WALK_MS
+      return MV.WALK_COST + up + extra, MV.WALK_MS
     end
   end
   if body_free(m.x, m.y - 1) then
     m.y = m.y - 1
     m.cling = true
-    return CLIMB_COST, CLIMB_MS
+    return MV.CLIMB_COST + extra, MV.CLIMB_MS
   end
   return nil
+end
+
+-- In the Thames? Monkeys can't swim.
+local function drowned(m)
+  return river ~= nil and m.x + 4 >= river.x0 and m.x + 4 <= river.x1 and m.y + 10 > river.surface
+end
+
+-- Picking things up: item k goes to monkey i.
+local function take_item(i, k)
+  local it = items[k]
+  if not it or not it.alive then return end
+  it.alive = false
+  local m = monkeys[i]
+  local text
+  if it.kind == "health" then
+    m.hp = math.min(MAX_HP, m.hp + HEALTH_PACK)
+    text = "+" .. HEALTH_PACK .. " HEALTH"
+  elseif it.kind == "umbrella" then
+    m.umbrella = true
+    text = "UMBRELLA! Blocks the next blast"
+  else
+    if ammo[i][it.weapon] >= 0 then ammo[i][it.weapon] = ammo[i][it.weapon] + 1 end
+    text = "CRATE! +1 " .. WEAPONS[it.weapon].name
+  end
+  flash(0x14, 0xF1, 0x95, 150)
+  show_popup(player_name(i) .. ": " .. text)
+  draw_items()
+  draw_monkey(i, false)
+end
+
+-- Anything monkey i is touching? record: note it for the other badge.
+local function try_pickups(i, record)
+  local m = monkeys[i]
+  if not m.alive then return end
+  for k, it in ipairs(items) do
+    if it.alive and it.x + 5 >= m.x + 1 and it.x <= m.x + 6 and it.y + 5 >= m.y and it.y <= m.y + 9 then
+      take_item(i, k)
+      if record then picked[#picked + 1] = tostring(k) end
+    end
+  end
+end
+
+-- Pickups whose roof was blown away fall too (and sink in the river).
+local function settle_items()
+  for _, it in ipairs(items) do
+    while it.alive and it.y + 6 < GROUND_Y do
+      local under = false
+      for c = it.x, it.x + 5 do
+        if solid(c, it.y + 6) then under = true break end
+      end
+      if under then break end
+      it.y = it.y + 1
+    end
+    if it.alive and river and it.x + 3 >= river.x0 and it.x + 3 <= river.x1 and it.y + 6 > river.surface then
+      it.alive = false
+    end
+  end
+  draw_items()
 end
 
 -- A monkey whose ground (or wall) was blown away drops until it stands on
@@ -621,7 +841,8 @@ end
 -- Blows a hole, scores the damage for the thrower and notes which monkeys
 -- were caught. Everything here only depends on the throw, so both badges
 -- get the same numbers.
-local function explode(x, y, blast)
+local function explode(x, y, wp)
+  local blast = wp.blast
   x, y = math.floor(x + 0.5), math.floor(y + 0.5)
   local t = throw_info
   local bs = town.buildings
@@ -635,7 +856,7 @@ local function explode(x, y, blast)
           local b = k and bs[k]
           if b then
             b.removed = b.removed + 1
-            t.pts = t.pts + (b.value > 0 and PTS_ICON_PIXEL * b.value or PTS_PIXEL)
+            t.pts = t.pts + (b.value > 0 and PTS.ICON_PIXEL * b.value or PTS.PIXEL)
           end
         end
       end
@@ -646,19 +867,34 @@ local function explode(x, y, blast)
     if not b.destroyed and b.total > 0 and b.removed >= b.total * DESTROYED_AT then
       b.destroyed = true
       if b.value > 0 then
-        t.pts = t.pts + PTS_ICON_DOWN * b.value
+        t.pts = t.pts + PTS.ICON_DOWN * b.value
         t.news[#t.news + 1] = b.name .. " DESTROYED!"
         flash(0xFF, 0xD8, 0x4D, 300)
       else
-        t.pts = t.pts + PTS_BLOCK_DOWN
+        t.pts = t.pts + PTS.BLOCK_DOWN
       end
     end
   end
+  -- Monkeys in reach take damage: all of it at the centre, 40% at the edge.
   for i = 1, 2 do
     local m = monkeys[i]
     local dx, dy = x - (m.x + 4), y - (m.y + 5)
-    local reach = blast + 2               -- the blast, plus the monkey's own size
-    if m.alive and dx * dx + dy * dy <= reach * reach then t.hit[i] = true end
+    local reach = blast + 6               -- the blast, plus the monkey's own size
+    local d = math.sqrt(dx * dx + dy * dy)
+    if m.alive and d <= reach then
+      if m.umbrella then
+        m.umbrella = false
+        local who = player_name(i)
+        t.news[#t.news + 1] = (who == "YOU" and "YOUR" or who .. "'S") .. " UMBRELLA SAVED THEM"
+      else
+        t.dmg[i] = (t.dmg[i] or 0) + math.floor(wp.dmg * (1 - 0.6 * d / reach) + 0.5)
+      end
+    end
+  end
+  -- Pickups caught in the blast are gone.
+  for _, it in ipairs(items) do
+    local dx, dy = x - (it.x + 3), y - (it.y + 3)
+    if it.alive and dx * dx + dy * dy <= (blast + 2) * (blast + 2) then it.alive = false end
   end
   show_boom(x, y, blast)
 end
@@ -675,15 +911,20 @@ local function monkey_at(x, y, thrower, steps)
 end
 
 -- One physics step for a projectile p. Returns nil while it flies, or
--- "off" (left the screen at a side), "ground", "city" or "monkey".
+-- "off" (left the screen at a side), "splash" (into the Thames), "ground",
+-- "city" or "monkey".
 local function step_projectile(p, check)
   local wp = p.wp
   p.vx = p.vx + wind * wp.wind * STEP
-  p.vy = p.vy + wp.grav * STEP
+  p.vy = p.vy + (wp.grav + (weather == "rain" and WX.RAIN_GRAV or 0)) * STEP
   p.x = p.x + p.vx * STEP
   p.y = p.y + p.vy * STEP
   p.steps = p.steps + 1
   if p.x < 0 or p.x >= CW then return "off" end
+  if river and p.x >= river.x0 and p.x < river.x1 + 1 and p.y >= river.surface
+      and not solid(math.floor(p.x), math.floor(p.y)) then
+    return "splash"
+  end
   if p.y >= GROUND_Y then return "ground" end
   if p.y < 0 or not check then return nil end
   if monkey_at(p.x, p.y, p.thrower, p.steps) then return "monkey" end
@@ -696,35 +937,48 @@ local function resolve_throw()
   hide_projectiles()
   draw_monkey(t.thrower, false)
   settle_monkeys()
+  settle_items()
+  for i = 1, 2 do try_pickups(i, false) end     -- fell onto something
 
-  local hit = {}
+  local lines = {}
   for i = 1, 2 do
-    if t.hit[i] then
-      hit[#hit + 1] = i
-      monkeys[i].alive = false
+    local m = monkeys[i]
+    if m.alive then
+      local dmg = math.min(m.hp, t.dmg[i] or 0)
+      if drowned(m) then
+        dmg = m.hp
+        t.news[#t.news + 1] = "SPLASH! " .. player_name(i) .. " FELL IN THE THAMES"
+      end
+      if dmg > 0 then
+        m.hp = m.hp - dmg
+        if i ~= t.thrower then t.pts = t.pts + PTS.HP * dmg end
+        lines[#lines + 1] = player_name(i) .. " -" .. dmg
+      end
+      if m.hp <= 0 then
+        m.alive = false
+        if i ~= t.thrower then t.pts = t.pts + PTS.KO end
+      end
       draw_monkey(i, false)
     end
   end
-  if #hit > 0 and not t.hit[t.thrower] then t.pts = t.pts + PTS_MONKEY end
   points[t.thrower] = points[t.thrower] + t.pts
 
-  local news = t.news[1]
-  if news then
-    show_popup(news .. "  +" .. t.pts)
-  elseif t.pts > 0 then
-    show_popup("+" .. t.pts .. " pts")
-  end
+  local text = t.news[1] or table.concat(lines, "  ")
+  if t.pts > 0 then text = text .. (text ~= "" and "  " or "") .. "+" .. t.pts end
+  if text ~= "" then show_popup(text) end
   update_hud()
 
   state = "boom"
-  if #hit > 0 then
+  local out1, out2 = not monkeys[1].alive, not monkeys[2].alive
+  if out1 or out2 then
     flash(0xFF, 0x75, 0x4A, 400)
-    -- If the thrower got caught in their own blast, the other monkey wins.
-    local winner = t.hit[t.thrower] and (3 - t.thrower) or t.thrower
-    timer.after(700, function() end_round(winner) end)
+    -- Both out (or the thrower knocked themselves out): the other monkey wins.
+    local winner
+    if out1 and out2 then winner = 3 - t.thrower else winner = out1 and 2 or 1 end
+    timer.after(900, function() end_round(winner) end)
     return
   end
-  if t.landed_near then cpu_misses = cpu_misses + 1 end
+  if t.landed_near then CPU.misses = CPU.misses + 1 end
   turn = 3 - turn
   timer.after(600, function()
     if state == "boom" then begin_turn() end
@@ -734,8 +988,10 @@ end
 -- A projectile has landed (or flown off a side).
 local function land(p, kind)
   p.img:show(false)
-  if kind ~= "off" then
-    explode(p.x, p.y, p.wp.blast)
+  if kind == "splash" then
+    flash(0x3A, 0x66, 0xB0, 120)
+  elseif kind ~= "off" then
+    explode(p.x, p.y, p.wp)
     flash(0xFF, 0xD8, 0x4D, 80)
     if p.wp.split then
       -- The bunch bursts into bananas, flying out from just above the hole.
@@ -759,7 +1015,7 @@ local function throw(i, a, pw, w)
   local img = SPRITES[wp.art]
   if wp.art == "rocket" and i == 2 then img = SPRITES.rocket_l end
   flying = { { x = x, y = y, vx = vx, vy = vy, steps = 0, thrower = i, wp = wp, img = img } }
-  throw_info = { thrower = i, hit = {}, pts = 0, news = {} }
+  throw_info = { thrower = i, dmg = {}, pts = 0, news = {} }
   shots = shots + 1
   acc = 0
   state = "fly"
@@ -819,7 +1075,7 @@ local function landing_x(a, p, wp, target_y)
   local dt = 1 / 40
   for _ = 1, 400 do
     vx = vx + wind * wp.wind * dt
-    vy = vy + wp.grav * dt
+    vy = vy + (wp.grav + (weather == "rain" and WX.RAIN_GRAV or 0)) * dt
     x = x + vx * dt
     y = y + vy * dt
     if vy > 0 and y >= target_y then return x end
@@ -887,22 +1143,91 @@ local function plan()
     coroutine.yield()
   end
   -- Aim like a monkey, not a computer: a mistake that shrinks every miss.
-  local spread = level == 1 and 15 * (0.78 ^ cpu_misses) or 5 * (0.55 ^ cpu_misses)
+  local spread = level == 1 and 15 * (0.78 ^ CPU.misses) or 5 * (0.55 ^ CPU.misses)
   local p = clamp(math.floor(best.p + (math.random() * 2 - 1) * spread + 0.5), 1, 100)
   local a = clamp(best.a + math.random(-2, 2), 5, 85)
   return a, p, w
 end
 
+-- How good is spot c (a monkey position) for the CPU monkey? Higher ground,
+-- a wall between it and the player (cover), and pickups all count.
+local function spot_score(c)
+  local target = monkeys[1]
+  local sc = (GROUND_Y - c.y) * 0.8
+  local dir = target.x > c.x and 1 or -1
+  for k = 3, 16 do
+    if solid(c.x + 4 + dir * k, c.y - 3) then sc = sc + 14 break end
+  end
+  for _, it in ipairs(items) do
+    if it.alive and math.abs(it.x - c.x) < 6 and math.abs(it.y - c.y) < 10 then
+      sc = sc + ((it.kind == "health" and monkeys[2].hp < 80) and 40 or 15)
+    end
+  end
+  if c.x < 4 or c.x > CW - 12 then sc = sc - 20 end
+  return sc
+end
+
+-- Walks an imaginary monkey both ways as far as its energy goes and keeps
+-- the best spot. A coroutine: it yields every few steps, so it never runs
+-- into the per-callback instruction limit. Easy picks more randomly.
+local function scout()
+  local m = monkeys[2]
+  local noise = level == 1 and 25 or 4
+  local best = { x = m.x, dir = 0, score = spot_score(m) + 6 }    -- staying put is slightly favoured
+  for _, dir in ipairs({ -1, 1 }) do
+    local c = { x = m.x, y = m.y, face = m.face, cling = m.cling }
+    local e, n = ENERGY, 0
+    while e > 0 do
+      local cost = walk_step(c, dir)
+      if not cost then break end
+      e = e - cost
+      while not supported(c) and c.y + 10 < GROUND_Y do
+        c.y = c.y + 1
+        c.cling = false
+      end
+      if drowned(c) then break end
+      n = n + 1
+      if n % 3 == 0 then
+        local sc = spot_score(c) - n * 0.15 + (math.random() * 2 - 1) * noise
+        if sc > best.score then best = { x = c.x, dir = dir, score = sc } end
+        coroutine.yield()
+      end
+    end
+  end
+  return best
+end
+
+
+local function start_planning()
+  CPU.phase = "plan"
+  CPU.plan = coroutine.create(plan)
+  state = "cpu"
+  update_hud()
+end
+
 function start_cpu_turn()
-  cpu_plan = coroutine.create(plan)
+  CPU.phase = "scout"
+  CPU.plan = coroutine.create(scout)
 end
 
 local function cpu_tick()
-  if not cpu_plan then return end
-  local ok, a, p, w = coroutine.resume(cpu_plan)
+  if not CPU.plan then return end
+  local ok, a, p, w = coroutine.resume(CPU.plan)
   if not ok then error(a) end
-  if coroutine.status(cpu_plan) == "dead" then
-    cpu_plan = nil
+  if coroutine.status(CPU.plan) == "dead" and CPU.phase == "scout" then
+    CPU.plan = nil
+    local goal = a
+    if goal.dir ~= 0 and goal.x ~= monkeys[2].x then
+      CPU.goal = { x = goal.x, dir = goal.dir, since = now, last_move = now }
+      state = "cpumove"
+      update_hud()
+    else
+      start_planning()
+    end
+    return
+  end
+  if coroutine.status(CPU.plan) == "dead" then
+    CPU.plan = nil
     aim[2].a, aim[2].p, aim[2].w = a, p, w
     hud_aim:text("CPU: " .. WEAPONS[w].name)
     timer.after(700, function()
@@ -923,11 +1248,11 @@ end
 
 local function net_tick()
   if not peer then return end
-  if pending and now - pending_at >= RESEND_EVERY then send_throw() end
-  if now - last_keepalive >= KEEPALIVE_EVERY then
+  if pending and now - pending_at >= NET.RESEND_EVERY then send_throw() end
+  if now - last_keepalive >= NET.KEEPALIVE_EVERY then
     if radio_send(peer, { t = "k", g = game_id, n = shots }) then last_keepalive = now end
   end
-  if state ~= "over" and now - last_heard > LOST_AFTER then
+  if state ~= "over" and now - last_heard > NET.LOST_AFTER then
     peer = nil
     state = "over"
     set_play_visible(true)
@@ -943,9 +1268,24 @@ local function local_throw()
   if mode == "duo" then
     local m = monkeys[turn]
     pending = { t = "th", g = game_id, n = shots, a = a.a, p = a.p, w = a.w,
-      x = m.x, y = m.y, f = m.face, c = m.cling and 1 or 0 }
+      x = m.x, y = m.y, f = m.face, c = m.cling and 1 or 0, k = table.concat(picked) }
     send_throw()
   end
+end
+
+-- The monkey whose turn it is walked (or fell) into the Thames: the turn
+-- ends without a throw. On two badges this goes out as a "throw" with
+-- weapon 0, so the other badge sees the same.
+local function sink(i)
+  local m = monkeys[i]
+  shots = shots + 1
+  if mode == "duo" and controller(i) == "human" then
+    pending = { t = "th", g = game_id, n = shots, a = 0, p = 0, w = 0,
+      x = m.x, y = m.y, f = m.face, c = 0, k = table.concat(picked) }
+    send_throw()
+  end
+  throw_info = { thrower = i, dmg = {}, pts = 0, news = {} }
+  resolve_throw()
 end
 
 -- The other badge's throw number n (count of throws including it).
@@ -953,6 +1293,14 @@ local function remote_throw(m)
   if m.n == shots + 1 and state == "wait" then
     local mk = monkeys[turn]
     if m.x then mk.x, mk.y, mk.face, mk.cling = m.x, m.y, m.f, m.c == 1 end
+    for ch in tostring(m.k or ""):gmatch("%d") do take_item(turn, tonumber(ch)) end
+    draw_monkey(turn, false)
+    if m.w == 0 then                      -- they fell in the Thames
+      shots = shots + 1
+      throw_info = { thrower = turn, dmg = {}, pts = 0, news = {} }
+      resolve_throw()
+      return
+    end
     aim[turn].a, aim[turn].p, aim[turn].w = m.a, m.p, m.w or 1
     throw(turn, m.a, m.p, m.w or 1)
   elseif m.n == shots + 1 then
@@ -992,8 +1340,11 @@ local function open_menu()
   if has_led then led.off() end
   -- A fresh skyline behind the menu.
   town = sky.build(city, math.random(1, 2147483000))
+  river, weather, items = town.river, "clear", {}
+  hide_weather()
   for i = 1, 2 do
     monkeys[i].x, monkeys[i].y, monkeys[i].alive = town.monkeys[i].x, town.monkeys[i].y, true
+    monkeys[i].hp, monkeys[i].umbrella = MAX_HP, false
   end
   set_play_visible(true)
   for _, l in ipairs(hud) do l:show(false) end
@@ -1030,33 +1381,33 @@ function close_menu()
 end
 
 local function refresh_lobby()
-  if not lobby_list then return end
-  lobby_ids = {}
-  for id, t in pairs(seen) do
-    if now - t < 4000 then lobby_ids[#lobby_ids + 1] = id end
+  if not LB.list then return end
+  LB.ids = {}
+  for id, t in pairs(LB.seen) do
+    if now - t < 4000 then LB.ids[#LB.ids + 1] = id end
   end
-  table.sort(lobby_ids)
+  table.sort(LB.ids)
   local items = {}
-  for i, id in ipairs(lobby_ids) do
-    items[i] = { title = name_of(id), right = invited == id and "invited" or nil }
+  for i, id in ipairs(LB.ids) do
+    items[i] = { title = name_of(id), right = LB.invited == id and "invited" or nil }
   end
-  lobby_list:items(items)
-  lobby_info:text(#items == 0 and "Looking for players... Open Monkey Bomb on another badge."
+  LB.list:items(items)
+  LB.info:text(#items == 0 and "Looking for players... Open Monkey Bomb on another badge."
     or "Pick a player and press SELECT to invite them.")
 end
 
 function open_lobby()
   state = "lobby"
-  invited, asking, seen = nil, nil, {}
+  LB.invited, LB.asking, LB.seen = nil, nil, {}
   set_play_visible(false)
   show_message(nil)
-  lobby_title = ui.label(0, 8, "2 PLAYERS", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
-  lobby_info = ui.label(16, 36, "", { size = 12, color = "dim", w = W - 32, align = "center" })
-  lobby_list = ui.list(40, 60, W - 80, 140, {}, {
+  LB.title = ui.label(0, 8, "2 PLAYERS", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
+  LB.info = ui.label(16, 36, "", { size = 12, color = "dim", w = W - 32, align = "center" })
+  LB.list = ui.list(40, 60, W - 80, 140, {}, {
     on_select = function(i)
-      local id = lobby_ids[i]
+      local id = LB.ids[i]
       if not id then return end
-      invited = id
+      LB.invited = id
       radio_send(id, { t = "inv" })
       ui.toast("Invite sent to " .. name_of(id))
       refresh_lobby()
@@ -1064,10 +1415,10 @@ function open_lobby()
   })
   ui.hint("SELECT invite   CANCEL back")
   radio_send("*", { t = "hi" })
-  hello_timer = timer.every(HELLO_EVERY, function()
+  LB.hello_timer = timer.every(NET.HELLO_EVERY, function()
     if state == "lobby" then
       radio_send("*", { t = "hi" })
-      if invited then radio_send(invited, { t = "inv" }) end
+      if LB.invited then radio_send(LB.invited, { t = "inv" }) end
       refresh_lobby()
     end
   end)
@@ -1075,10 +1426,10 @@ function open_lobby()
 end
 
 function close_lobby()
-  if hello_timer then timer.cancel(hello_timer) hello_timer = nil end
-  if lobby_list then lobby_list:remove() lobby_list = nil end
-  if lobby_title then lobby_title:remove() lobby_title = nil end
-  if lobby_info then lobby_info:remove() lobby_info = nil end
+  if LB.hello_timer then timer.cancel(LB.hello_timer) LB.hello_timer = nil end
+  if LB.list then LB.list:remove() LB.list = nil end
+  if LB.title then LB.title:remove() LB.title = nil end
+  if LB.info then LB.info:remove() LB.info = nil end
 end
 
 -- host: the badge that sent the invite plays the left monkey.
@@ -1105,24 +1456,24 @@ end
 function on_mesh(from, m)
   if type(m) ~= "table" then return end
   if m.t == "hi" then
-    local is_new = seen[from] == nil
-    seen[from] = now
+    local is_new = LB.seen[from] == nil
+    LB.seen[from] = now
     if state == "lobby" and is_new then refresh_lobby() end
   elseif m.t == "inv" then
-    seen[from] = now
-    if state == "lobby" and asking == nil then
-      if invited == from then
+    LB.seen[from] = now
+    if state == "lobby" and LB.asking == nil then
+      if LB.invited == from then
         if badge.id() and badge.id() < from then accept_invite(from) end
         return
       end
-      asking = from
+      LB.asking = from
       ui.confirm(name_of(from) .. " wants to play Monkey Bomb. Play?", function(yes)
-        asking = nil
+        LB.asking = nil
         if yes and state == "lobby" then accept_invite(from) end
       end)
     end
   elseif m.t == "go" or m.t == "k" or m.t == "th" or m.t == "ok" then
-    if state == "lobby" and invited == from and m.g then
+    if state == "lobby" and LB.invited == from and m.g then
       start_duo(from, m.g, true)       -- also covers a lost "go"
     end
     if mode ~= "duo" or from ~= peer or m.g ~= game_id then return end
@@ -1159,7 +1510,7 @@ local function tell_position(m)
   end
 end
 
-local function move_tick(ms)
+local function move_tick(ms, forced_dir)
   local m = monkeys[turn]
   local before_x, before_y = m.x, m.y
   ms = math.min(ms, 100)
@@ -1168,7 +1519,7 @@ local function move_tick(ms)
     jump.t = jump.t + ms
     while jump and jump.t >= STEP_MS do
       jump.t = jump.t - STEP_MS
-      jump.vy = jump.vy + JUMP_G * STEP
+      jump.vy = jump.vy + MV.JUMP_G * STEP
       jump.fx = jump.fx + jump.vx * STEP
       jump.fy = jump.fy + jump.vy * STEP
       local nx, ny = math.floor(jump.fx + 0.5), math.floor(jump.fy + 0.5)
@@ -1185,17 +1536,20 @@ local function move_tick(ms)
   elseif not supported(m) then
     -- Falling.
     move_acc = move_acc + ms
-    while move_acc >= 1000 / FALL_SPEED and not supported(m) do
-      move_acc = move_acc - 1000 / FALL_SPEED
+    while move_acc >= 1000 / MV.FALL_SPEED and not supported(m) do
+      move_acc = move_acc - 1000 / MV.FALL_SPEED
       m.y = m.y + 1
     end
     if supported(m) then move_acc = 0 end
   else
-    local k = has_keys and sys.keys() or {}
-    local dir = (k.right and not k.left) and 1 or ((k.left and not k.right) and -1 or 0)
+    local dir = forced_dir
+    if dir == nil then
+      local k = has_keys and sys.keys() or {}
+      dir = (k.right and not k.left) and 1 or ((k.left and not k.right) and -1 or 0)
+    end
     if dir ~= 0 and energy > 0 then
       move_acc = move_acc + ms
-      while move_acc >= WALK_MS and energy > 0 do
+      while move_acc >= MV.WALK_MS and energy > 0 do
         local cost, took = walk_step(m, dir)
         if not cost then move_acc = 0 break end
         energy = math.max(0, energy - cost)
@@ -1209,13 +1563,29 @@ local function move_tick(ms)
   if m.x ~= before_x or m.y ~= before_y then
     draw_monkey(turn, false)
     tell_position(m)
+    try_pickups(turn, true)
     update_hud()
+    if drowned(m) then sink(turn) end
+  end
+end
+
+-- The CPU monkey walking to the spot it picked.
+local function cpu_move_tick(ms)
+  local m, g = monkeys[2], CPU.goal
+  local bx, by = m.x, m.y
+  move_tick(ms, (m.x ~= g.x) and g.dir or 0)
+  if state ~= "cpumove" then return end            -- it fell in the river
+  if m.x ~= bx or m.y ~= by then g.last_move = now end
+  local arrived = m.x == g.x and supported(m) and not jump
+  if arrived or energy <= 0 or now - g.last_move > 600 or now - g.since > 6000 then
+    if supported(m) then start_planning() end
   end
 end
 
 function on_tick(ms)
   now = now + ms
   if mode == "duo" and state ~= "menu" and state ~= "lobby" then net_tick() end
+  if state ~= "menu" and state ~= "lobby" then weather_tick(ms) end
 
   if state == "charge" then
     power = math.min(100, power + ms * 100 / CHARGE_MS)
@@ -1235,6 +1605,8 @@ function on_tick(ms)
     fly_tick(ms)
   elseif state == "move" then
     move_tick(ms)
+  elseif state == "cpumove" then
+    cpu_move_tick(ms)
   end
 end
 
@@ -1275,10 +1647,10 @@ function on_key(key, rep)
       end
       return true
     elseif key == "up" and not rep then
-      if supported(m) and not jump and energy >= JUMP_COST then
-        energy = energy - JUMP_COST
+      if supported(m) and not jump and energy >= MV.JUMP_COST then
+        energy = energy - MV.JUMP_COST
         m.cling = false
-        jump = { vx = m.face * JUMP_VX, vy = JUMP_VY, fx = m.x, fy = m.y, t = 0 }
+        jump = { vx = m.face * MV.JUMP_VX, vy = MV.JUMP_VY, fx = m.x, fy = m.y, t = 0 }
         update_hud()
       end
       return true
@@ -1300,7 +1672,7 @@ function on_key(key, rep)
   if key == "back" then
     if rep then return true end
     if mode == "duo" then leave_duo() end
-    cpu_plan = nil
+    CPU.plan = nil
     flying = {}
     open_menu()
     return true

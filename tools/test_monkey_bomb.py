@@ -58,6 +58,8 @@ def human_turn(sim, rnd):
         if rnd.random() < 0.3:
             sim.press("up")                 # jump
         sim.tick(30, 40)                    # land / finish falling
+        if not str(sim.M.hint).startswith("L/R walk"):
+            return                          # walked into the Thames: the turn is over
     sim.press("select")                     # walking -> aiming
     sim.tick(30, 1)
     angle_steps = rnd.randint(-10, 25)
@@ -80,7 +82,7 @@ def monkey_spots(sim):
                   if o.kind == "image" and o.visible and not o.removed and len(o.rows) == 10)
 
 
-def play_vs_cpu(level_row, rnd, max_ticks=20000):
+def play_vs_cpu(level_row, rnd, max_ticks=60000):
     sim = Sim("monkey-bomb")
     counting(sim)
     for _ in range(level_row - 1):
@@ -116,7 +118,7 @@ def play_vs_cpu(level_row, rnd, max_ticks=20000):
     raise AssertionError("match never finished")
 
 
-def play_hotseat(rnd, max_ticks=40000):
+def play_hotseat(rnd, max_ticks=80000):
     sim = Sim("monkey-bomb")
     for _ in range(1):
         sim.press("down")                  # menu opens on row 1: go to row 3
@@ -134,7 +136,7 @@ def play_hotseat(rnd, max_ticks=40000):
     raise AssertionError("hot-seat match never finished")
 
 
-def play_duo(rnd, loss=0.2, max_ticks=60000):
+def play_duo(rnd, loss=0.2, max_ticks=120000):
     net.LOSS = loss
     stats = {"max_size": 0, "lost": 0}
     a = Sim("monkey-bomb"); a.M.badge_id = "AAAAAA"; a.name = "@alice"; a.sent = []
@@ -166,7 +168,14 @@ def play_duo(rnd, loss=0.2, max_ticks=60000):
     assert canvas_pixels(a) == canvas_pixels(b), "both badges must build the same skyline"
 
     throws, checks = 0, 0
-    for _ in range(max_ticks):
+    last, last_change = None, 0
+    for tick_no in range(max_ticks):
+        now_view = (throws, tuple(texts(a)), tuple(texts(b)))
+        if now_view != last:
+            last, last_change = now_view, tick_no
+        if tick_no - last_change > 3000:      # 90 s with nothing happening
+            raise AssertionError(f"stuck: A {texts(a)} {a.M.hint} {monkey_spots(a)} / "
+                                 f"B {texts(b)} {b.M.hint} {monkey_spots(b)}")
         for s in (a, b):
             if my_turn(s):
                 human_turn(s, rnd)
