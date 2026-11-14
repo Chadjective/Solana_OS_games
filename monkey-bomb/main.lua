@@ -104,7 +104,7 @@ local ART = {
   coconut = { "..y..", ".ccc.", "cdcdc", "ccccc", "ccdcc", ".ccc." },
   health = { "wwwwww", "wwrrww", "wrrrrw", "wrrrrw", "wwrrww", "wwwwww" },
   umbrella = { "..mm..", ".mmmm.", "mmmmmm", "...k..", "...k..", "..kk.." },
-  crate = { "dddddd", "dcpgcd", "dcccdd", "ddcccd", "dcgpcd", "dddddd" },
+  crate = { "oooooo", "oyyyyo", "opgpgo", "ogpgpo", "oyyyyo", "oooooo" },
 }
 local ART_PAL = { palette = { q = 0x9AA0A6, c = 0x6B4423, d = 0x3B2412, r = 0xE5383B }, scale = SCALE }
 
@@ -161,8 +161,7 @@ local city = ui.canvas(0, 0, CW, CH, { scale = SCALE, color = "bg" })
 -- Colours as the canvas stores them (the screen has 65,536 colours, so a
 -- colour can come back slightly different): anything in EMPTY is sky.
 local EMPTY = {}
-for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE, sky.WATER, sky.WATER_LIGHT,
-    sky.AURORA[1], sky.AURORA[2], sky.AURORA[3], sky.AURORA[4] }) do
+for _, c in ipairs({ sky.SKY, sky.STAR, sky.MOON, sky.MOON_SHADE, sky.WATER, sky.WATER_LIGHT }) do
   city:pixel(0, 0, c)
   EMPTY[city:get(0, 0)] = true
 end
@@ -299,7 +298,7 @@ local last_heard, last_keepalive = 0, 0
 local sent_at = { -100000, -100000, -100000, -100000 }
 
 -- Menus
-local menu, menu_title, menu_panel = nil, nil, nil
+local menu, menu_title, menu_panel, menu_back = nil, nil, nil, nil
 -- The two-badge lobby: its screen objects, who we've heard, who we invited.
 local LB = { list = nil, title = nil, info = nil, ids = {}, seen = {}, invited = nil, asking = nil, hello_timer = nil }
 
@@ -425,18 +424,9 @@ local function hide_weather()
   for _, f in ipairs(fogs) do f:show(false) end
 end
 
--- Moves the rain, snow and fog along, and makes the LEDs shimmer under the
--- northern lights (just for show).
+-- Moves the rain, snow and fog along (just for show).
 local function weather_tick(ms)
-  if weather == "aurora" and has_led and state ~= "over" and state ~= "between" then
-    for i = 1, led.count do
-      local t = now / 900 + i * 0.7
-      local g = math.floor(60 + 60 * math.sin(t))
-      local b = math.floor(30 + 30 * math.sin(t * 0.7 + 1))
-      local r = math.floor(25 + 25 * math.sin(t * 0.5 + 2))
-      led.set(i, math.max(0, r), math.max(0, g), math.max(0, b))
-    end
-  elseif weather == "rain" or weather == "snow" then
+  if weather == "rain" or weather == "snow" then
     local fall = weather == "rain" and 0.35 or 0.05
     local drift = wind * (weather == "rain" and 0.01 or 0.006)
     for _, d in ipairs(drops) do
@@ -522,7 +512,7 @@ end
 local function update_hud()
   hud_l:text(player_name(1) .. " " .. wins[1] .. "  " .. points[1] .. "pt")
   hud_r:text(points[2] .. "pt  " .. wins[2] .. " " .. player_name(2))
-  local wx = weather == "clear" and "" or ((weather == "aurora" and "AURORA" or weather:upper()) .. "  ")
+  local wx = weather == "clear" and "" or (weather:upper() .. "  ")
   if wind == 0 then
     hud_wind:text(wx .. "WIND calm")
   else
@@ -1359,8 +1349,15 @@ local function open_menu()
   set_play_visible(true)
   for _, l in ipairs(hud) do l:show(false) end
   power_bar:show(false)
+  for i = 1, 2 do
+    local m = monkeys[i]
+    m.bar:show(false) m.bar_bg:show(false) m.brolly:show(false)
+  end
   menu_panel = ui.rect(0, 0, W, 36, { color = sky.SKY })
   menu_title = ui.label(0, 8, "SOLANA MONKEY BOMB", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
+  -- A solid panel behind the list: the list's rows are see-through on the
+  -- badge, and the skyline behind them made the lower options hard to read.
+  menu_back = ui.rect(34, 46, W - 68, 156, { color = 0x15102A, radius = 8, border = "border" })
   menu = ui.list(40, 52, W - 80, 144, menu_items(), {
     on_select = function(i)
       menu_i = i
@@ -1388,6 +1385,7 @@ function close_menu()
   if menu then menu:remove() menu = nil end
   if menu_title then menu_title:remove() menu_title = nil end
   if menu_panel then menu_panel:remove() menu_panel = nil end
+  if menu_back then menu_back:remove() menu_back = nil end
 end
 
 local function refresh_lobby()

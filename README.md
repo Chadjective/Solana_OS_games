@@ -105,7 +105,6 @@ A turn-based throwing game over London, with a nod to the SMB community.
   | Rain | Throws are heavier and drop sooner |
   | Snow | Snow on the roofs, and walking or climbing costs extra energy |
   | Fog | Drifting fog banks hide parts of the city, and the aiming guide shows only its first two dots |
-  | Aurora (rare) | The northern lights ripple across the sky and the badge's LEDs shimmer green and purple. Just for looks |
 
 - **Pickups** lie on the rooftops, 3 per round. Walk into one to take it:
 
@@ -140,8 +139,6 @@ A turn-based throwing game over London, with a nod to the SMB community.
   between badges far apart through a server "bridge".
 
 ![Walking: the monkey leaves its roof, climbs onto Wembley's arch, and aims from there](docs/monkey-bomb-moving.png)
-
-![The northern lights over London](docs/monkey-bomb-aurora.png)
 
 ![Weather and the Thames: rain, snow and fog rounds with the river and a bridge, and rounds without; health packs, crates and umbrellas on the rooftops](docs/monkey-bomb-weather.png)
 

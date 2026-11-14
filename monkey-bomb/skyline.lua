@@ -25,8 +25,6 @@ S.GROUND = 0x1B1B24
 S.WATER = 0x1E3A6E                     -- the Thames (not solid: bombs splash, monkeys sink)
 S.WATER_LIGHT = 0x3A66B0
 S.SNOW = 0xF4F6FF
--- The northern lights: sky colours (not solid), drawn behind the city.
-S.AURORA = { 0x0F3D3A, 0x14805E, 0x19C98A, 0x6A3FB0 }
 S.RIVER_W = 26
 local BRIDGES = { "LONDON BRIDGE", "WATERLOO BRIDGE", "BLACKFRIARS BRIDGE", "MILLENNIUM BRIDGE" }
 local CW, CH = S.CW, S.CH
@@ -537,25 +535,9 @@ function S.build(canvas, seed)
   paint(mx + 1, my - 2, 2, 2, S.MOON_SHADE)
   dot(mx - 2, my + 2, S.MOON_SHADE)
 
-  -- This round's weather: clear 32%, northern lights 8%, rain 25%, snow 15%, fog 20%.
+  -- This round's weather: clear 40%, rain 25%, snow 15%, fog 20%.
   local roll = r.int(1, 100)
-  local weather = roll <= 32 and "clear" or (roll <= 40 and "aurora" or
-    (roll <= 65 and "rain" or (roll <= 80 and "snow" or "fog")))
-  if weather == "aurora" then
-    -- Rippling curtains: for each column, a streak hanging from a wavy top,
-    -- bright at the top and fading down; purple fringes here and there.
-    local phase, phase2 = r.int(0, 62) / 10, r.int(0, 62) / 10
-    for col = 0, CW - 1 do
-      local top = math.floor(26 + 8 * math.sin(col / 11 + phase) + 3 * math.sin(col / 4 + phase2) + 0.5)
-      local len = 6 + math.floor(5 * (1 + math.sin(col / 7 + phase2)) + 0.5)
-      if (col + math.floor(phase * 10)) % 9 ~= 0 then        -- gaps between the folds
-        paint(col, top, 1, 2, S.AURORA[3])
-        if col % 2 == 0 then paint(col, top + 2, 1, len, S.AURORA[2]) end      -- streaks
-        if col % 3 == 0 then paint(col, top + 2 + len, 1, len // 2, S.AURORA[1]) end
-        if math.sin(col / 5 + phase) > 0.8 then dot(col, top - 1, S.AURORA[4]) end
-      end
-    end
-  end
+  local weather = roll <= 40 and "clear" or (roll <= 65 and "rain" or (roll <= 80 and "snow" or "fog"))
   snowing = weather == "snow"
   local has_river = r.chance(0.5)
 
