@@ -69,70 +69,11 @@ local has_keys = sys.keys ~= nil
 local CAP = { 0x9945FF, 0x14F195 }   -- player 1 purple, player 2 green
 
 ---------------------------------------------------------------------------
--- Pixel art (one character per pixel; "." is see-through)
+-- Pixel art (in art.lua)
 ---------------------------------------------------------------------------
-local MONKEY_STAND = {
-  "..hhhh..",
-  ".hhhhhhh",
-  ".nnnnnn.",
-  "nnffffnn",
-  ".nfkfkn.",
-  ".nffffn.",
-  "..nffn..",
-  ".nnnnnn.",
-  "n.nnnn.n",
-  "..n..n..",
-}
-local MONKEY_THROW = {
-  "..hhhh.n",
-  ".hhhhhhn",
-  ".nnnnnnn",
-  "nnffffnn",
-  ".nfkfkn.",
-  ".nffffn.",
-  "..nffn..",
-  ".nnnnnn.",
-  "n.nnnn..",
-  "..n..n..",
-}
-
-local ART = {
-  bomb = { "...y.", "..o..", ".kkk.", "kkwkk", "kkkkk", ".kkk." },
-  bunch = { "....g.", "..yyg.", ".yyyy.", "yyyyy.", "yyyy..", ".yy..." },
-  banana = { "y...y", ".yyy." },
-  rocket = { "y.....", "oqqqqm", "y....." },
-  coconut = { "..y..", ".ccc.", "cdcdc", "ccccc", "ccdcc", ".ccc." },
-  health = { "wwwwww", "wwrrww", "wrrrrw", "wrrrrw", "wwrrww", "wwwwww" },
-  umbrella = { "..mm..", ".mmmm.", "mmmmmm", "...k..", "...k..", "..kk.." },
-  crate = { "oooooo", "oyyyyo", "opgpgo", "ogpgpo", "oyyyyo", "oooooo" },
-}
+local art = require("art")
+local MONKEY_STAND, MONKEY_THROW, ART, mirror = art.MONKEY_STAND, art.MONKEY_THROW, art.ART, art.mirror
 local ART_PAL = { palette = { q = 0x9AA0A6, c = 0x6B4423, d = 0x3B2412, r = 0xE5383B }, scale = SCALE }
-
-local function mirror(rows, width)
-  local out = {}
-  for i, r in ipairs(rows) do
-    out[i] = (r .. string.rep(".", width - #r)):reverse()
-  end
-  return out
-end
-
-local function explosion_rows()
-  local rows = {}
-  for y = -6, 6 do
-    local row = {}
-    for x = -6, 6 do
-      local d = math.sqrt(x * x + y * y)
-      local ch = "."
-      if d < 2.5 then ch = "w"
-      elseif d < 4.2 then ch = "y"
-      elseif d < 5.6 then ch = "o"
-      elseif d < 6.6 and (x + y) % 2 == 0 then ch = "m" end
-      row[#row + 1] = ch
-    end
-    rows[#rows + 1] = table.concat(row)
-  end
-  return rows
-end
 
 ---------------------------------------------------------------------------
 -- Weapons
@@ -228,7 +169,7 @@ for i = 1, 3 do
 end
 
 local booms, boom_busy = {}, {}
-local BOOM_ROWS = explosion_rows()
+local BOOM_ROWS = art.explosion_rows()
 for i = 1, 6 do
   booms[i] = ui.image(0, 0, BOOM_ROWS, { scale = SCALE })
   booms[i]:show(false)
@@ -295,12 +236,9 @@ local pending = nil      -- my last throw, resent until the other badge confirms
 local pending_at = 0
 local queued = nil       -- the other badge's throw, if it arrived early
 local last_heard, last_keepalive = 0, 0
-local sent_at = { -100000, -100000, -100000, -100000 }
 
 -- Menus
 local menu, menu_title, menu_panel, menu_back = nil, nil, nil, nil
--- The two-badge lobby: its screen objects, who we've heard, who we invited.
-local LB = { list = nil, title = nil, info = nil, ids = {}, seen = {}, invited = nil, asking = nil, hello_timer = nil }
 
 local match_wins = storage.get("match_wins") or { 0, 0, 0 }   -- easy, hard, two badges
 local best_points = storage.get("best_points") or 0
@@ -340,33 +278,15 @@ local function flash(r, g, b, ms)
   timer.after(ms or 120, led.off)
 end
 
-local function name_of(id)
-  if has_mesh then
-    for _, p in ipairs(mesh.nearby()) do
-      if p.id == id then
-        if p.name and p.name ~= "" then return p.name end
-        break
-      end
-    end
-  end
-  return id
-end
-
 local function player_name(i)
   if mode == "cpu" then return i == 1 and "YOU" or "CPU" end
   if mode == "duo" then return i == me and "YOU" or peer_name end
   return "P" .. i
 end
 
-local function radio_send(to, m)
-  -- The badge's own clock: unlike `now`, it's exact inside timers too.
-  local t = sys.millis()
-  if t - sent_at[1] < 1000 then return false end   -- at most 4 a second
-  table.remove(sent_at, 1)
-  sent_at[4] = t
-  mesh.send(to, m)
-  return true
-end
+local Lobby = require("lobby")
+local radio_send, name_of = Lobby.send, Lobby.name_of   -- the radio (4 a second) and badge names
+local lobby                                            -- the two-badge lobby (made with the menus)
 
 local function solid(x, y)
   local c = city:get(x, y)
@@ -1096,147 +1016,28 @@ end
 ---------------------------------------------------------------------------
 -- The CPU monkey
 ---------------------------------------------------------------------------
--- Where would a throw land, ignoring buildings (x where it drops to the
--- target's height)? Coarse steps: this is the CPU "thinking", not the real throw.
-local function landing_x(a, p, wp, target_y)
-  local x, y = launch_point(2)
-  local vx, vy = launch_velocity(2, a, p, wp)
-  local dt = 1 / 40
-  for _ = 1, 400 do
-    vx = vx + wind * wp.wind * dt
-    vy = vy + (wp.grav + (weather == "rain" and WX.RAIN_GRAV or 0)) * dt
-    x = x + vx * dt
-    y = y + vy * dt
-    if vy > 0 and y >= target_y then return x end
-    if x < -40 or x > CW + 40 then return x end
-  end
-  return x
-end
-
--- Does this throw get to the target without hitting a building first?
-local function clear_path(a, p, wp)
-  local x, y = launch_point(2)
-  local vx, vy = launch_velocity(2, a, p, wp)
-  local b = { x = x, y = y, vx = vx, vy = vy, steps = 0, thrower = 2, wp = wp }
-  local target = monkeys[1]
-  for _ = 1, 250 do
-    local r
-    for _ = 1, 3 do                       -- 3 steps at a time is enough to see a wall
-      r = step_projectile(b, false)
-      if r then break end
-    end
-    if r then return false end
-    if b.y >= 0 and monkey_at(b.x, b.y, 2, 999) == 1 then return true end
-    if b.y >= 0 and solid(math.floor(b.x), math.floor(b.y)) then
-      return math.abs(b.x - (target.x + 4)) < wp.blast
-    end
-  end
-  return false
-end
-
-local function choose_weapon()
-  local roll = math.random()
-  local a = ammo[2]
-  if a[4] > 0 and roll < 0.15 then return 4 end
-  if a[3] > 0 and roll < 0.40 then return 3 end
-  if a[2] > 0 and roll < 0.60 then return 2 end
-  return 1
-end
-
--- Plans one angle per tick (a coroutine), so the thinking never runs into
--- the badge's per-callback instruction limit.
-local function plan()
-  local me_m, target_m = monkeys[2], monkeys[1]
-  me_m.face = (target_m.x > me_m.x) and 1 or -1
-  draw_monkey(2, false)
-  local face = me_m.face
-  local w = choose_weapon()
-  local wp = WEAPONS[w]
-  local target = monkeys[1]
-  local tx, ty = target.x + 4, target.y + 5
-  local best, best_err = nil, math.huge
-  local angles = wp.grav < 50 and { 10, 20, 30, 40, 50, 60 } or { 30, 40, 50, 60, 65, 70, 75 }
-  for _, a in ipairs(angles) do
-    -- Binary search on power for this angle.
-    local lo, hi = 5, 100
-    for _ = 1, 14 do
-      local mid = (lo + hi) / 2
-      -- short of the target (on our side of it): more power
-      if (landing_x(a, mid, wp, ty) - tx) * face < 0 then lo = mid else hi = mid end
-    end
-    local p = (lo + hi) / 2
-    local err = math.abs(landing_x(a, p, wp, ty) - tx)
-    coroutine.yield()
-    if err < 3 and clear_path(a, p, wp) then best = { a = a, p = p } break end
-    if err < best_err then best, best_err = { a = a, p = p }, err end
-    coroutine.yield()
-  end
-  -- Aim like a monkey, not a computer: a mistake that shrinks every miss.
-  local spread = level == 1 and 15 * (0.78 ^ CPU.misses) or 5 * (0.55 ^ CPU.misses)
-  local p = clamp(math.floor(best.p + (math.random() * 2 - 1) * spread + 0.5), 1, 100)
-  local a = clamp(best.a + math.random(-2, 2), 5, 85)
-  return a, p, w
-end
-
--- How good is spot c (a monkey position) for the CPU monkey? Higher ground,
--- a wall between it and the player (cover), and pickups all count.
-local function spot_score(c)
-  local target = monkeys[1]
-  local sc = (GROUND_Y - c.y) * 0.8
-  local dir = target.x > c.x and 1 or -1
-  for k = 3, 16 do
-    if solid(c.x + 4 + dir * k, c.y - 3) then sc = sc + 14 break end
-  end
-  for _, it in ipairs(items) do
-    if it.alive and math.abs(it.x - c.x) < 6 and math.abs(it.y - c.y) < 10 then
-      sc = sc + ((it.kind == "health" and monkeys[2].hp < 80) and 40 or 15)
-    end
-  end
-  if c.x < 4 or c.x > CW - 12 then sc = sc - 20 end
-  return sc
-end
-
--- Walks an imaginary monkey both ways as far as its energy goes and keeps
--- the best spot. A coroutine: it yields every few steps, so it never runs
--- into the per-callback instruction limit. Easy picks more randomly.
-local function scout()
-  local m = monkeys[2]
-  local noise = level == 1 and 25 or 4
-  local best = { x = m.x, dir = 0, score = spot_score(m) + 6 }    -- staying put is slightly favoured
-  for _, dir in ipairs({ -1, 1 }) do
-    local c = { x = m.x, y = m.y, face = m.face, cling = m.cling }
-    local e, n = ENERGY, 0
-    while e > 0 do
-      local cost = walk_step(c, dir)
-      if not cost then break end
-      e = e - cost
-      while not supported(c) and c.y + 10 < GROUND_Y do
-        c.y = c.y + 1
-        c.cling = false
-      end
-      if drowned(c) then break end
-      n = n + 1
-      if n % 3 == 0 then
-        local sc = spot_score(c) - n * 0.15 + (math.random() * 2 - 1) * noise
-        if sc > best.score then best = { x = c.x, dir = dir, score = sc } end
-        coroutine.yield()
-      end
-    end
-  end
-  return best
-end
-
+-- The CPU's thinking (where to stand, which weapon, what angle and power)
+-- is in cpu.lua; it plays through these.
+local think = require("cpu").new({
+  monkeys = monkeys, ammo = ammo, CPU = CPU, WEAPONS = WEAPONS,
+  RAIN_GRAV = WX.RAIN_GRAV, CW = CW, GROUND_Y = GROUND_Y, ENERGY = ENERGY,
+  now = function() return { wind = wind, weather = weather, level = level, items = items } end,
+  launch_point = launch_point, launch_velocity = launch_velocity,
+  step_projectile = step_projectile, monkey_at = monkey_at, solid = solid,
+  walk_step = walk_step, supported = supported, drowned = drowned,
+  clamp = clamp, draw_monkey = draw_monkey,
+})
 
 local function start_planning()
   CPU.phase = "plan"
-  CPU.plan = coroutine.create(plan)
+  CPU.plan = coroutine.create(think.plan)
   state = "cpu"
   update_hud()
 end
 
 function start_cpu_turn()
   CPU.phase = "scout"
-  CPU.plan = coroutine.create(scout)
+  CPU.plan = coroutine.create(think.scout)
 end
 
 local function cpu_tick()
@@ -1417,56 +1218,15 @@ function close_menu()
   if menu_back then menu_back:remove() menu_back = nil end
 end
 
-local function refresh_lobby()
-  if not LB.list then return end
-  LB.ids = {}
-  for id, t in pairs(LB.seen) do
-    if now - t < 4000 then LB.ids[#LB.ids + 1] = id end
-  end
-  table.sort(LB.ids)
-  local items = {}
-  for i, id in ipairs(LB.ids) do
-    items[i] = { title = name_of(id), right = LB.invited == id and "invited" or nil }
-  end
-  LB.list:items(items)
-  LB.info:text(#items == 0 and "Looking for players... Open Monkey Bomb on another badge."
-    or "Pick a player and press SELECT to invite them.")
-end
-
 function open_lobby()
   state = "lobby"
-  LB.invited, LB.asking, LB.seen = nil, nil, {}
   set_play_visible(false)
   show_message(nil)
-  LB.title = ui.label(0, 8, "2 PLAYERS", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
-  LB.info = ui.label(16, 36, "", { size = 12, color = "dim", w = W - 32, align = "center" })
-  LB.list = ui.list(40, 60, W - 80, 140, {}, {
-    on_select = function(i)
-      local id = LB.ids[i]
-      if not id then return end
-      LB.invited = id
-      radio_send(id, { t = "inv" })
-      ui.toast("Invite sent to " .. name_of(id))
-      refresh_lobby()
-    end,
-  })
-  ui.hint("SELECT invite   CANCEL back")
-  radio_send("*", { t = "hi" })
-  LB.hello_timer = timer.every(NET.HELLO_EVERY, function()
-    if state == "lobby" then
-      radio_send("*", { t = "hi" })
-      if LB.invited then radio_send(LB.invited, { t = "inv" }) end
-      refresh_lobby()
-    end
-  end)
-  refresh_lobby()
+  lobby:open()
 end
 
 function close_lobby()
-  if LB.hello_timer then timer.cancel(LB.hello_timer) LB.hello_timer = nil end
-  if LB.list then LB.list:remove() LB.list = nil end
-  if LB.title then LB.title:remove() LB.title = nil end
-  if LB.info then LB.info:remove() LB.info = nil end
+  lobby:close()
 end
 
 -- host: the badge that sent the invite plays the left monkey.
@@ -1480,39 +1240,15 @@ local function start_duo(id, g, host)
   start_match()
 end
 
-local function accept_invite(id)
-  local g = math.random(1, 2147483000)
-  radio_send(id, { t = "go", g = g })
-  timer.after(400, function() radio_send(id, { t = "go", g = g }) end)
-  start_duo(id, g, false)
-end
+lobby = Lobby.new({ title = "2 PLAYERS", game = "Monkey Bomb", on_start = start_duo })
 
 ---------------------------------------------------------------------------
 -- Callbacks
 ---------------------------------------------------------------------------
 function on_mesh(from, m)
   if type(m) ~= "table" then return end
-  if m.t == "hi" then
-    local is_new = LB.seen[from] == nil
-    LB.seen[from] = now
-    if state == "lobby" and is_new then refresh_lobby() end
-  elseif m.t == "inv" then
-    LB.seen[from] = now
-    if state == "lobby" and LB.asking == nil then
-      if LB.invited == from then
-        if badge.id() and badge.id() < from then accept_invite(from) end
-        return
-      end
-      LB.asking = from
-      ui.confirm(name_of(from) .. " wants to play Monkey Bomb. Play?", function(yes)
-        LB.asking = nil
-        if yes and state == "lobby" then accept_invite(from) end
-      end)
-    end
-  elseif m.t == "go" or m.t == "k" or m.t == "th" or m.t == "ok" then
-    if state == "lobby" and LB.invited == from and m.g then
-      start_duo(from, m.g, true)       -- also covers a lost "go"
-    end
+  if lobby:handle(from, m) then return end
+  if m.t == "k" or m.t == "th" or m.t == "ok" then
     if mode ~= "duo" or from ~= peer or m.g ~= game_id then return end
     last_heard = now
     if m.t == "th" then
