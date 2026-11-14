@@ -9,7 +9,7 @@ small **Lua** programs. Each game is a folder you upload at the badge site's
 | Game | Folder | Status |
 |---|---|---|
 | Solana Pong | [`pong/`](pong/) | Playable (tested in the local simulator) |
-| Game 2 | — | Not started |
+| Solana Monkey Bomb (SMB) | [`monkey-bomb/`](monkey-bomb/) | Playable (tested in the local simulator) |
 
 ## Solana Pong
 
@@ -60,14 +60,51 @@ game in both.
 
 Everything in `pong/` ships to the badge, so keep only game files there.
 
-### Try it on a real badge or the emulator
+## Solana Monkey Bomb (SMB)
 
-1. Open the badge site's `/apps/submit` page and drop in the `pong/` folder.
+![Solana Monkey Bomb: menu, aiming, a bomb hitting the Shard, and the hole it leaves](docs/monkey-bomb-preview.png)
+
+A turn-based throwing game over the City of London's skyline, with a nod to
+the SMB community.
+
+- **Two monkeys** on rooftops: player 1 in a **purple** cap, player 2 in a
+  **green** cap (the Solana colours). The monkeys are original pixel art.
+- **The skyline** is rebuilt every round, mixing **the Shard**, **the
+  Gherkin**, **the Cheesegrater** and **the Walkie-Talkie** with ordinary
+  office blocks with lit windows. Bombs blow holes in the buildings.
+- **Wind** changes every round and pushes the bomb sideways (shown at the top).
+- **1 player** against a CPU monkey on Easy or Hard. It plans its throw and
+  gets more accurate after each miss.
+- **2 players: pass the badge.** Take turns on one badge.
+- **2 players: 2 badges.** Play over the badges' radio, invite and accept as
+  in Pong. Because the game is turn-based, it also works between badges far
+  apart through a server "bridge".
+- First to win **3 rounds** wins the match. Match wins are saved on the badge.
+
+**Controls:** UP/DOWN sets the angle, LEFT/RIGHT sets the power (hold to go
+faster), and SELECT throws. CANCEL goes back to the menu.
+
+**How two badges stay in sync:** both badges build the skyline from the same
+**seed**, a starting number for all the random choices. A throw is sent as
+just its angle and power (under 50 bytes). Each badge then flies the bomb with
+the same fixed-step physics, so the flight, the hole and the result are
+identical on both. Each throw is resent until the other badge confirms it,
+so lost messages are fine.
+
+| File | What it is |
+|---|---|
+| `monkey-bomb/main.lua` | The whole game, including the pixel art and the skyline drawing. |
+| `monkey-bomb/app.json` | The manifest (`led` for the lights, `mesh` for two-badge games). |
+
+## Try a game on a real badge or the emulator
+
+1. Open the badge site's `/apps/submit` page and drop in the game's folder
+   (`pong/` or `monkey-bomb/`).
 2. Click **Try in emulator** to play it in the browser, or **Run on badge** to
    copy it to a badge over USB (desktop Chrome or Edge).
 3. **Publish** when you're happy. Publishing needs an account with X linked.
 
-### Developer tools (`tools/`)
+## Developer tools (`tools/`)
 
 These run on a computer, not on the badge.
 
@@ -79,6 +116,11 @@ These run on a computer, not on the badge.
   simulated badges, with 15% of messages dropped on purpose. It checks that
   both agree on the score, the screens stay in sync, and no badge goes over 4
   messages a second.
+- `python3 tools/test_monkey_bomb.py` plays Monkey Bomb against the CPU on
+  both levels, a pass-the-badge match, and a two-badge match with 20% of
+  messages dropped. It checks that both badges' skylines stay
+  pixel-for-pixel identical and that every step stays well under the
+  badge's CPU limit.
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
 
 The tools need `pip install lupa pillow`. The stand-in badge only approximates

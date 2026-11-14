@@ -42,10 +42,37 @@ function ui.image(x, y, rows, opts)
       end
     end
   end
-  local o = new("image", x, y, { rows = rows, palette = pal })
+  local o = new("image", x, y, { rows = rows, palette = pal, _scale = opts and opts.scale or 1 })
+  function o:scale(n) self._scale = n end
   function o:set(r) self.rows = r end
   return o
 end
+local THEME = { text = 0xFFFFFF, dim = 0x8A8AA0, bg = 0x0B0B14, panel = 0x1C1C2B, border = 0x3A3A55,
+  purple = 0x9945FF, green = 0x14F195, pink = 0xEB54BC, lpurple = 0xC4A4FF, blue = 0x2F80ED,
+  aqua = 0x00C2FF, lime = 0xB4F000, yellow = 0xFFD84D, orange = 0xFF754A }
+local function rgb565(c)
+  if type(c) == "string" then c = THEME[c] end
+  local r, g, b = (c >> 19) & 31, (c >> 10) & 63, (c >> 3) & 31
+  return ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2)
+end
+M.rgb565 = rgb565
+
+-- Canvas: the pixels live on the Python side (M.make_canvas), so drawing
+-- doesn't count towards the instruction budget, as on the badge where it
+-- costs about 1 instruction per 16 pixels.
+function ui.canvas(x, y, w, h, opts)
+  local o = new("canvas", x, y, { w = w, h = h, scale = opts and opts.scale or 1 })
+  local buf = M.make_canvas(w, h)
+  o.buf = buf
+  local function col(c) if c == nil then return nil end return rgb565(c) end
+  function o:clear(c) buf.clear(col(c)) end
+  function o:pixel(px, py, c) buf.rect(px, py, 1, 1, col(c)) end
+  function o:rect(rx, ry, rw, rh, c) buf.rect(rx, ry, rw, rh, col(c)) end
+  function o:line(x1, y1, x2, y2, c) buf.line(x1, y1, x2, y2, col(c)) end
+  function o:get(px, py) return buf.get(px, py) end
+  return o
+end
+
 function ui.list(x, y, w, h, items, opts)
   local o = new("list", x, y, { w = w, h = h, _items = items, opts = opts or {}, sel = 1 })
   function o:items(i) self._items = i end

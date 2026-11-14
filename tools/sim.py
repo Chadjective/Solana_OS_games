@@ -41,10 +41,39 @@ def font(size):
     return ImageFont.load_default()
 
 
+class Canvas:
+    """Pixel buffer for ui.canvas, kept in Python (see badge_mock.lua)."""
+
+    def __init__(self, w, h):
+        self.w, self.h, self.px = int(w), int(h), {}
+
+    def clear(self, c):
+        self.px = {} if c is None else {i: c for i in range(self.w * self.h)}
+
+    def rect(self, x, y, w, h, c):
+        x, y, w, h = int(x // 1), int(y // 1), int(w // 1), int(h // 1)
+        for yy in range(max(0, y), min(self.h, y + h)):
+            base = yy * self.w
+            for xx in range(max(0, x), min(self.w, x + w)):
+                self.px[base + xx] = c
+
+    def line(self, x1, y1, x2, y2, c):
+        n = max(abs(x2 - x1), abs(y2 - y1), 1)
+        for i in range(int(n) + 1):
+            self.rect(round(x1 + (x2 - x1) * i / n), round(y1 + (y2 - y1) * i / n), 1, 1, c)
+
+    def get(self, x, y):
+        x, y = int(x // 1), int(y // 1)
+        if x < 0 or y < 0 or x >= self.w or y >= self.h:
+            return None
+        return self.px.get(y * self.w + x)
+
+
 class Sim:
     def __init__(self, app):
         self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
         self.M = self.lua.eval(f'dofile("{os.path.join(HERE, "badge_mock.lua")}")')
+        self.M.make_canvas = Canvas
         self.M.run(os.path.join(HERE, "..", app))
         self.g = self.lua.globals()
 
@@ -88,12 +117,22 @@ class Sim:
                     d.line([x + i, y, x + i, y + o.h - 1], fill=c)
             elif k == "image":
                 pal = o.palette
+                sc = int(o._scale or 1)
                 for ry, row in enumerate(o.rows.values()):
                     for rx, ch in enumerate(row):
                         if ch in ". ":
                             continue
                         c = pal[ch] if pal and pal[ch] is not None else ART[ch]
-                        img.putpixel((x + rx, y + ry), rgb(c)) if 0 <= x + rx < 320 and 0 <= y + ry < 240 else None
+                        if isinstance(c, str):
+                            c = THEME[c]
+                        px0, py0 = x + rx * sc, y + ry * sc
+                        d.rectangle([px0, py0, px0 + sc - 1, py0 + sc - 1], fill=rgb(c))
+            elif k == "canvas":
+                sc = int(o.scale)
+                cv = o.buf
+                for i, c in cv.px.items():
+                    cx, cy = i % o.w, i // o.w
+                    d.rectangle([x + cx * sc, y + cy * sc, x + cx * sc + sc - 1, y + cy * sc + sc - 1], fill=rgb(c))
             elif k == "label":
                 size = o.opts.size or 14
                 f = font(int(size * 0.85))
