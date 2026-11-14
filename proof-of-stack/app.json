@@ -1,0 +1,11 @@
+{
+  "id": "proof-of-stack",
+  "name": "Proof of Stack",
+  "version": "1.0.0",
+  "author": "",
+  "summary": "Stack transactions, finalize blocks, earn lamports. Don't fill the blockspace.",
+  "icon": "list",
+  "accent": "14F195",
+  "category": "games",
+  "permissions": ["led", "mesh"]
+}
