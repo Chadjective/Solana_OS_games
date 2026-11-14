@@ -38,17 +38,21 @@ local has_mesh = mesh ~= nil
 local has_keys = sys.keys ~= nil
 
 ---------------------------------------------------------------------------
--- Pieces: the seven four-cell shapes, coloured along the Solana gradient.
+-- Pieces: the seven four-cell shapes, coloured along the Solana gradient:
+-- seven even steps from Solana Purple (#9945FF) to Solana Green (#14F195),
+-- the brand's two colours, as in the logo. Spam rows are a neutral grey.
 ---------------------------------------------------------------------------
+local PURPLE, GREEN = 0x9945FF, 0x14F195
+local GRADIENT = { PURPLE, 0x8263EE, 0x6B82DD, 0x549BCA, 0x3DB6B9, 0x26D4A8, GREEN }
 local BG, GRID_DOT, GARBAGE = 0x0E0B1E, 0x221B3E, 0x4A4A5E
 local SHAPES = {
-  { cells = { { 0, 1 }, { 1, 1 }, { 2, 1 }, { 3, 1 } }, n = 4, color = 0x14F195 },  -- long
-  { cells = { { 1, 0 }, { 2, 0 }, { 1, 1 }, { 2, 1 } }, n = 4, color = 0x9945FF, fixed = true },  -- square
-  { cells = { { 1, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, n = 3, color = 0x00C2FF },
-  { cells = { { 1, 0 }, { 2, 0 }, { 0, 1 }, { 1, 1 } }, n = 3, color = 0xEB54BC },
-  { cells = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 } }, n = 3, color = 0xB4F000 },
-  { cells = { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, n = 3, color = 0xC4A4FF },
-  { cells = { { 2, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, n = 3, color = 0x2F80ED },
+  { cells = { { 0, 1 }, { 1, 1 }, { 2, 1 }, { 3, 1 } }, n = 4, color = GRADIENT[7] },  -- long
+  { cells = { { 1, 0 }, { 2, 0 }, { 1, 1 }, { 2, 1 } }, n = 4, color = GRADIENT[1], fixed = true },  -- square
+  { cells = { { 1, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, n = 3, color = GRADIENT[4] },
+  { cells = { { 1, 0 }, { 2, 0 }, { 0, 1 }, { 1, 1 } }, n = 3, color = GRADIENT[2] },
+  { cells = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 } }, n = 3, color = GRADIENT[6] },
+  { cells = { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, n = 3, color = GRADIENT[3] },
+  { cells = { { 2, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, n = 3, color = GRADIENT[5] },
 }
 -- Each shape's four rotations: turning a cell (x, y) in an n x n box gives (n-1-y, x).
 for _, s in ipairs(SHAPES) do
@@ -78,10 +82,10 @@ COLORS[9] = { 0xFFFFFF, 0xFFFFFF, 0xDDDDDD }   -- a finalized row, flashing
 -- The clusters, and which way transactions fall on each: "down", "right"
 -- (they come in from the left), "up" (they rise) or "left".
 local CLUSTERS = {
-  { name = "MAINNET", dir = "down", color = 0x14F195 },
-  { name = "DEVNET", dir = "right", color = 0x00C2FF },
-  { name = "TESTNET", dir = "up", color = 0xEB54BC },
-  { name = "LOCALNET", dir = nil, color = 0xFFD84D },   -- turns every epoch
+  { name = "MAINNET", dir = "down", color = GREEN },
+  { name = "DEVNET", dir = "right", color = PURPLE },
+  { name = "TESTNET", dir = "up", color = GRADIENT[4] },
+  { name = "LOCALNET", dir = nil, color = 0xFFFFFF },   -- turns every epoch
 }
 local LOCAL_TURN = { "down", "right", "up", "left" }
 local function cluster_of(ep)
@@ -136,18 +140,18 @@ local function lab(x, y, text, size, color, w, align)
 end
 local L = {
   title = lab(4, 2, "PROOF OF STACK", 12, 0xFFFFFF, 102, "left"),
-  cluster = lab(4, 16, "MAINNET", 12, 0x14F195, 102, "left"),
+  cluster = lab(4, 16, "MAINNET", 12, GREEN, 102, "left"),
   k1 = lab(4, 34, "LAMPORTS", 12, "dim"), v1 = lab(4, 46, "0", 14, 0xFFFFFF),
   k2 = lab(4, 66, "BLOCKS", 12, "dim"), v2 = lab(4, 78, "0", 14, 0xFFFFFF),
   k3 = lab(4, 98, "EPOCH", 12, "dim"), v3 = lab(4, 110, "1", 14, 0xFFFFFF),
   k4 = lab(4, 130, "SLOT", 12, "dim"), v4 = lab(4, 142, "0", 14, 0xFFFFFF),
   k5 = lab(4, 162, "TPS", 12, "dim"), v5 = lab(4, 174, "0", 14, 0xFFFFFF),
   nxt = lab(216, 4, "NEXT TX", 12, "dim", 100, "center"),
-  msg1 = lab(214, 50, "", 12, 0x14F195, 104, "center"),
+  msg1 = lab(214, 50, "", 12, GREEN, 104, "center"),
   msg2 = lab(214, 66, "", 14, 0xFFFFFF, 104, "center"),
   msg3 = lab(214, 84, "", 12, "dim", 104, "center"),
   peer = lab(216, 102, "", 12, "dim", 100, "center"),
-  spam = lab(216, 182, "", 12, "orange", 100, "center"),
+  spam = lab(216, 182, "", 12, PURPLE, 100, "center"),
 }
 local GAME_OBJS = { frame, next_cv }
 for _, l in pairs(L) do GAME_OBJS[#GAME_OBJS + 1] = l end
@@ -366,7 +370,7 @@ local function render_peer(heights)
   local top = 0
   for c = 0, COLS - 1 do
     local h = heights[c + 1] or 0
-    if h > 0 then peer_cv:rect(c, ROWS - h, 1, h, 0x5B4A9E) end
+    if h > 0 then peer_cv:rect(c, ROWS - h, 1, h, 0x6B3FB3) end   -- a deep Solana purple
     top = math.max(top, h)
   end
   if orient == "down" or orient == "up" then
@@ -672,7 +676,7 @@ function finish(won)
       best.lamports = score
       line = line .. "  NEW BEST"
     end
-    flash(0xEB, 0x54, 0xBC, 500)
+    flash(0x99, 0x45, 0xFF, 500)
   end
   storage.set("best", best)
   show_message(title, line .. "   SELECT again")
@@ -710,7 +714,7 @@ local function on_peer_state(m)
   if (m.a or 0) > VS.got then
     VS.pending = VS.pending + (m.a - VS.got)
     VS.got = m.a
-    flash(0xFF, 0x75, 0x4A, 120)
+    flash(0x99, 0x45, 0xFF, 120)
   end
   local hs = {}
   for i = 1, #(m.h or "") do hs[i] = string.byte(m.h, i) - 97 end

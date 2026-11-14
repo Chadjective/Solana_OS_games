@@ -217,6 +217,11 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
 - Each finalized block flashes one of the eight ideas Solana was built on:
   Proof of History, Tower BFT, Turbine, Gulf Stream, Sealevel, Pipelining,
   Cloudbreak and Archivers.
+- **Solana colours:** the seven transaction shapes are seven even steps of the
+  official Solana gradient, from Solana Purple `#9945FF` to Solana Green
+  `#14F195` (the two brand colours), on a near-black background. Spam rows
+  are neutral grey, and the cluster names use the same colours (Mainnet
+  green, Devnet purple, Testnet the blue midpoint, Localnet white).
 - A hard drop is a **priority fee**: 2 extra lamports per row it falls.
 - The game ends when the **blockspace is full**.
 - **Modes:**
