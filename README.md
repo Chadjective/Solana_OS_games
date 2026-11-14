@@ -176,7 +176,10 @@ confirms it, so lost messages are fine.
 
 | File | What it is |
 |---|---|
-| `monkey-bomb/main.lua` | The game: weapons, physics, points, CPU, menus and the two-badge mode. |
+| `monkey-bomb/main.lua` | The game: weapons, physics, points, turns, menus and the two-badge mode. |
+| `monkey-bomb/cpu.lua` | The CPU monkey's thinking: where to stand, which weapon, what angle and power. |
+| `monkey-bomb/lobby.lua` | The two-badge lobby (finding players, invites) and the radio. Written to be shared by all the games. |
+| `monkey-bomb/art.lua` | The pixel art: monkeys, weapons, pickups and the explosion. |
 | `monkey-bomb/skyline.lua` | The London skyline: every landmark's drawing, the Thames and its bridges, snow on the roofs, the round's weather, and how a city is put together. To add a landmark, add one entry here. |
 | `monkey-bomb/app.json` | The manifest (`led` for the lights, `mesh` for two-badge games). |
 
