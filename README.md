@@ -83,24 +83,55 @@ A turn-based throwing game over London, with a nod to the SMB community.
   wall they've climbed, so you can throw from the side of the Shard. **Jump**
   to cross gaps. Your monkey throws the way it last faced, so you can climb
   past your opponent and throw back at them. When you're in a good spot,
-  press SELECT to aim. The computer monkey doesn't move yet.
+  press SELECT to aim.
+- **The CPU monkey moves too.** Each turn it scouts as far as its energy
+  goes both ways and walks to the best spot it finds: higher ground, a wall
+  between it and you for cover, and pickups (especially health when it's
+  hurt). Hard picks the best spot; Easy wanders more randomly.
 - **Destructible:** every explosion blows a hole in the skyline. A monkey
   whose roof (or wall) is blown away falls to the next solid surface.
+- **Health:** each monkey has 100 health, shown as a bar over its head.
+  Explosions do the most damage at their centre and about 40% at the edge.
+  A monkey at 0 health loses the round, and blowing yourself up counts too.
+- **The River Thames** runs through the city in about half the rounds, with
+  a bridge over it (London, Waterloo, Blackfriars or Millennium Bridge) that
+  you can walk on and blow up. A monkey that falls or walks into the river
+  drowns and loses the round. Throws that land in the water just splash.
+- **Weather** changes every round, shown next to the wind:
+
+  | Weather | Effect |
+  |---|---|
+  | Clear | None |
+  | Rain | Throws are heavier and drop sooner |
+  | Snow | Snow on the roofs, and walking or climbing costs extra energy |
+  | Fog | Drifting fog banks hide parts of the city, and the aiming guide shows only its first two dots |
+
+- **Pickups** lie on the rooftops, 3 per round. Walk into one to take it:
+
+  | Pickup | Effect |
+  |---|---|
+  | Health pack | +35 health (up to 100) |
+  | Umbrella | Blocks the next explosion that would hurt you. Shown over your head while you carry it |
+  | Crate | +1 ammo for a special weapon |
+
+  Pickups caught in a blast are destroyed, and ones whose roof is blown
+  away fall (or sink in the Thames).
 - **Wind** changes every round and pushes throws sideways (shown at the top).
 - **Weapons**, each player per round:
 
-  | Weapon | Ammo | What it does |
-  |---|---|---|
-  | Bomb | unlimited | The standard throw. |
-  | Banana bunch | 2 | Bursts on impact into 5 bananas that scatter and explode. A cluster bomb. |
-  | Bazooka | 3 | Fast and flat, hardly drops, but drifts more in the wind. |
-  | Coconut | 1 | Heavy, with a huge blast. |
+  | Weapon | Ammo | Damage at the centre | What it does |
+  |---|---|---|---|
+  | Bomb | unlimited | 40 | The standard throw. |
+  | Banana bunch | 2 | 15, then 18 per banana | Bursts on impact into 5 bananas that scatter and explode. A cluster bomb. |
+  | Bazooka | 3 | 45 | Fast and flat, hardly drops, but drifts more in the wind. |
+  | Coconut | 1 | 65 | Heavy, with a huge blast. |
 
 - **Points for damage.** Every pixel destroyed scores: 1 for an office block,
   and 1–3 for a landmark depending on how iconic it is. Knocking out more
   than half a building earns a bonus: +20 for a block, and +100 to +300 for a
-  landmark, announced on screen (e.g. "BIG BEN DESTROYED!"). Hitting the
-  other monkey earns +250 and wins the round. First to win **3 rounds** wins
+  landmark, announced on screen (e.g. "BIG BEN DESTROYED!"). Damaging the
+  other monkey scores 2 points per point of health, and knocking it out
+  earns +250 and wins the round. First to win **3 rounds** wins
   the match. Points are a bonus score: the best total is saved on the badge.
 - **Modes:** 1 player against a CPU monkey (Easy or Hard, and it uses the
   weapons too), **pass the badge** (2 players on one badge), or **2 badges**
@@ -108,6 +139,8 @@ A turn-based throwing game over London, with a nod to the SMB community.
   between badges far apart through a server "bridge".
 
 ![Walking: the monkey leaves its roof, climbs onto Wembley's arch, and aims from there](docs/monkey-bomb-moving.png)
+
+![Weather and the Thames: rain, snow and fog rounds with the river and a bridge, and rounds without; health packs, crates and umbrellas on the rooftops](docs/monkey-bomb-weather.png)
 
 **Controls:**
 
@@ -125,8 +158,11 @@ the power meter and again to throw.
 
 **How two badges stay in sync:** both badges build the skyline from the same
 **seed**, a starting number for all the random choices. A throw is sent as
-just its angle, power and weapon, plus where the thrower is standing (about
-80 bytes). While a player walks, their badge also sends their position a few
+just its angle, power and weapon, plus where the thrower is standing and
+which pickups they collected on the way (under 90 bytes). The weather, the
+river and where the pickups lie all come from the round's seed. A monkey
+that walks into the Thames sends a "throw" with no weapon, so both badges
+end the turn the same way. While a player walks, their badge also sends their position a few
 times a second, so the other player can watch them move. Each badge then flies it
 with the same fixed-step physics, so the flight, the holes, the points and
 the result are identical on both. Each throw is resent until the other badge
@@ -135,7 +171,7 @@ confirms it, so lost messages are fine.
 | File | What it is |
 |---|---|
 | `monkey-bomb/main.lua` | The game: weapons, physics, points, CPU, menus and the two-badge mode. |
-| `monkey-bomb/skyline.lua` | The London skyline: every landmark's drawing, and how a city is put together. To add a landmark, add one entry here. |
+| `monkey-bomb/skyline.lua` | The London skyline: every landmark's drawing, the Thames and its bridges, snow on the roofs, the round's weather, and how a city is put together. To add a landmark, add one entry here. |
 | `monkey-bomb/app.json` | The manifest (`led` for the lights, `mesh` for two-badge games). |
 
 ## Try a game on a real badge or the emulator
