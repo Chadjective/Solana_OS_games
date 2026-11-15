@@ -193,8 +193,8 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
 (it uses its own name, shapes' colours and look, not any existing game's).
 
 - **Transactions** fall into the **blockspace**. Fill a whole row to
-  **finalize a block**: it clears and pays out in **lamports**, starting at
-  5,000 (Solana's base fee per signature) and multiplied by the epoch.
+  **finalize a block**: it clears and pays out in **bits** (the score), starting at
+  5,000 and multiplied by the epoch.
   Finalizing 4 at once is a **SUPERMAJORITY**: confetti in the Solana
   colours bursts from the board (falling the way gravity points) and the
   LEDs sweep.
@@ -224,7 +224,7 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
   `#14F195` (the two brand colours), on a near-black background. Spam rows
   are neutral grey, and the cluster names use the same colours (Mainnet
   green, Devnet purple, Testnet the blue midpoint, Localnet white).
-- A hard drop is a **priority fee**: 2 extra lamports per row it falls.
+- A hard drop is a **priority fee**: 2 extra bits per row it falls.
 - The game ends when the **blockspace is full**.
 - **Modes:**
   - **1 player: Marathon.** Play as long as you can. The best score is saved.
@@ -252,7 +252,7 @@ arrows turn with gravity, as in the table above.
 
 ## Nearby leaderboards (all games)
 
-![The nearby leaderboard in Proof of Stack: Marathon lamports and Sprint 40 times from the badges around you](docs/leaderboard-preview.png)
+![The nearby leaderboard in Proof of Stack: Marathon bits and Sprint 40 times from the badges around you](docs/leaderboard-preview.png)
 
 Every game's menu has **Nearby leaderboard**: the best scores of the badges
 around you, with yours, best first. LEFT/RIGHT switches category:
@@ -261,7 +261,7 @@ around you, with yours, best first. LEFT/RIGHT switches category:
 |---|---|
 | Solana Pong | Wins vs CPU, 2-badge wins |
 | Solana Monkey Bomb | Best match points, matches won |
-| Proof of Stack | Marathon lamports, Sprint 40 time (lowest first), versus wins |
+| Proof of Stack | Marathon bits, Sprint 40 time (lowest first), versus wins |
 
 - While a game is open, the badge announces its own bests over the radio
   every 3 seconds (paused during two-badge games, so they keep the radio).

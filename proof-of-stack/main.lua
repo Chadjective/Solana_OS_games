@@ -1,8 +1,8 @@
 -- PROOF OF STACK: a Solana block-stacking puzzle for the Solana OS badge.
 --
 -- Transactions fall into the blockspace. Fill a whole row to finalize a
--- block: it clears, and you earn lamports (5,000 per block, Solana's base
--- fee per signature, times the epoch). Four blocks at once is a
+-- block: it clears, and you earn bits (the score: 5,000 per block, times
+-- the epoch). Four blocks at once is a
 -- SUPERMAJORITY. Every 10 blocks a new epoch starts and transactions fall
 -- faster. When the blockspace is full, it's over.
 --
@@ -17,7 +17,7 @@
 -- board is simply drawn turned, and the buttons turn with it.
 --
 -- Controls (Mainnet): LEFT/RIGHT move, UP rotate, DOWN soft drop, SELECT
--- hard drop (a "priority fee": extra lamports), CANCEL quit. On other
+-- hard drop (a "priority fee": extra bits), CANCEL quit. On other
 -- clusters the arrows follow gravity (the hint bar shows which is which).
 
 local W, H = ui.W, ui.H                  -- 320 x 218
@@ -141,7 +141,7 @@ end
 local L = {
   title = lab(4, 2, "PROOF OF STACK", 12, 0xFFFFFF, 102, "left"),
   cluster = lab(4, 16, "MAINNET", 12, GREEN, 102, "left"),
-  k1 = lab(4, 34, "LAMPORTS", 12, "dim"), v1 = lab(4, 46, "0", 14, 0xFFFFFF),
+  k1 = lab(4, 34, "BITS", 12, "dim"), v1 = lab(4, 46, "0", 14, 0xFFFFFF),
   k2 = lab(4, 66, "BLOCKS", 12, "dim"), v2 = lab(4, 78, "0", 14, 0xFFFFFF),
   k3 = lab(4, 98, "EPOCH", 12, "dim"), v3 = lab(4, 110, "1", 14, 0xFFFFFF),
   k4 = lab(4, 130, "SLOT", 12, "dim"), v4 = lab(4, 142, "0", 14, 0xFFFFFF),
@@ -193,6 +193,7 @@ local locks = {}          -- when recent pieces locked (for the TPS meter)
 local clearing = nil      -- rows being finalized, and when the flash ends
 local now = 0
 local msg_timer = nil
+-- (The best score is saved as "lamports", the score's old name, so saved bests carry over.)
 local best = storage.get("best") or { lamports = 0, sprint = 0, wins = 0 }
 
 -- Versus
@@ -738,7 +739,7 @@ function finish(won)
     VS.over_at = now
   else
     title = "BLOCKSPACE FULL"
-    line = commas(score) .. " lamports"
+    line = commas(score) .. " bits"
     if score > (best.lamports or 0) then
       best.lamports = score
       line = line .. "  NEW BEST"
@@ -796,7 +797,7 @@ end
 local board = require("scores").new({
   game = "Proof of Stack", send = radio_send, name_of = name_of,
   categories = {
-    { label = "MARATHON LAMPORTS" },
+    { label = "MARATHON BITS" },
     { label = "SPRINT 40 TIME", low = true, fmt = clock },
     { label = "VERSUS WINS" },
   },
@@ -825,7 +826,7 @@ local function open_menu()
   if has_led then led.off() end
   FX.led_off_at, FX.sweep_t = nil, nil
   menu_title = ui.label(0, 22, "PROOF OF STACK", { size = 32, color = 0xFFFFFF, w = W, align = "center" })
-  menu_sub = ui.label(0, 64, "Finalize blocks. Earn lamports. Don't fill the blockspace.",
+  menu_sub = ui.label(0, 64, "Finalize blocks. Earn bits. Don't fill the blockspace.",
     { size = 12, color = "dim", w = W, align = "center" })
   menu_back = ui.rect(34, 90, W - 68, 116, { color = 0x15102A, radius = 8, border = "border" })
   menu = ui.list(40, 94, W - 80, 108, menu_items(), {

@@ -12,10 +12,10 @@
 --     send = radio_send,          -- the game's own radio, so it shares the 4-a-second budget
 --     name_of = name_of,          -- a badge id -> its display name
 --     categories = {              -- one per kind of best score
---       { label = "MARATHON LAMPORTS" },                      -- higher is better
+--       { label = "MARATHON BITS" },                      -- higher is better
 --       { label = "SPRINT 40 TIME", low = true, fmt = clock }, -- lower is better
 --     },
---     mine = function() return { best_lamports, best_time } end,  -- 0 = none yet
+--     mine = function() return { best_bits, best_time } end,  -- 0 = none yet
 --   })
 --   board:tick(ms, quiet)    -- every tick; quiet = true while the radio is busy (a 2-badge game)
 --   board:handle(from, msg)  -- in on_mesh, first: true when it was a score message

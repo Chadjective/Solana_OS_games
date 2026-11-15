@@ -5,7 +5,7 @@
 
 The bot reads the board off the screen (the canvas), works out where the
 falling piece fits best, and presses the buttons. Checks: blocks get
-finalized and paid in lamports, epochs advance, Sprint ends at 40 blocks,
+finalized and paid in bits, epochs advance, Sprint ends at 40 blocks,
 Marathon ends with BLOCKSPACE FULL, every callback stays well under the
 badge's instruction limit, and in Versus spam rows reach the other badge
 and both badges agree on who won.
@@ -393,7 +393,7 @@ def main():
     # Marathon: a sloppier bot plays until the blockspace is full.
     sim, pieces, peak, t = play_single(1, 120000, 0.55, lambda s: "BLOCKSPACE FULL" in texts(s))
     print(f"marathon: BLOCKSPACE FULL after {pieces} pieces: {value(sim, 'BLOCKS')} blocks, "
-          f"{value(sim, 'LAMPORTS')} lamports, epoch {value(sim, 'EPOCH')}, slot {value(sim, 'SLOT')}, "
+          f"{value(sim, 'BITS')} bits, epoch {value(sim, 'EPOCH')}, slot {value(sim, 'SLOT')}, "
           f"peak {peak} instructions per callback")
     assert int(value(sim, "BLOCKS")) > 0 and int(value(sim, "EPOCH")) >= 1
     assert peak < BUDGET * 0.5
