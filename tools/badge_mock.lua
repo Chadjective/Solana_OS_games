@@ -121,6 +121,8 @@ function badge.owner() return nil end
 
 sys = {}
 function sys.millis() return M.now end
+-- Unix seconds from the server clock, or nil if never synced (set M.unix to sync).
+function sys.time() if M.unix then return M.unix + M.now // 1000 end return nil end
 function sys.keys() return M.keys end
 function sys.exit() M.exited = true end
 

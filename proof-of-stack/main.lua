@@ -7,8 +7,9 @@
 -- faster. When the blockspace is full, it's over.
 --
 -- Modes: Marathon (as long as you last), Sprint (finalize 40 blocks as fast
--- as you can) and Versus on two badges over the mesh radio, where clearing
--- rows sends spam transactions (garbage rows) to the other player.
+-- as you can), the Daily challenge (2 minutes, the same pieces on every
+-- badge that day) and Versus on two badges over the mesh radio, where
+-- clearing rows sends spam transactions (garbage rows) to the other player.
 --
 -- Cluster switch: as the epochs go by the game moves between Solana's
 -- clusters, and gravity turns with it. Mainnet (epochs 1-3): transactions
@@ -25,6 +26,8 @@ local COLS, ROWS = 10, 20
 local CELL = 5                           -- canvas pixels per cell (10 px on screen)
 local BX, BY = 110, 1                    -- the board's top-left on screen
 local SPRINT_LINES = 40
+local DAILY_MS = 120000                  -- the daily challenge lasts 2 minutes
+local DAY_ONE = 20454                    -- 1 January 2026 (days since 1970): daily #1
 local LOCK_MS, LOCK_RESETS = 450, 12
 local DAS, ARR = 170, 50                 -- held LEFT/RIGHT: delay, then repeat (ms)
 local SOFT_MS = 35                       -- ms per row while DOWN is held
@@ -156,9 +159,9 @@ local L = {
 local GAME_OBJS = { frame, next_cv }
 for _, l in pairs(L) do GAME_OBJS[#GAME_OBJS + 1] = l end
 
-local panel = ui.rect(70, 66, W - 140, 76, { color = "panel", radius = 8, border = "border" })
-local msg = ui.label(70, 78, "", { size = 20, color = 0xFFFFFF, w = W - 140, align = "center" })
-local sub = ui.label(70, 110, "", { size = 12, color = "dim", w = W - 140, align = "center" })
+local panel = ui.rect(50, 66, W - 100, 76, { color = "panel", radius = 8, border = "border" })
+local msg = ui.label(50, 78, "", { size = 20, color = 0xFFFFFF, w = W - 100, align = "center" })
+local sub = ui.label(50, 110, "", { size = 12, color = "dim", w = W - 100, align = "center" })
 
 ---------------------------------------------------------------------------
 -- State
@@ -181,6 +184,24 @@ local clearing = nil      -- rows being finalized, and when the flash ends
 local now = 0
 local msg_timer = nil
 local best = storage.get("best") or { lamports = 0, sprint = 0, wins = 0 }
+local daily = storage.get("daily") or { day = -1, best = 0 }   -- today's best daily score
+
+-- Today's day number, from the badge's clock (set from the server once it
+-- has been online). Without it, the last day the badge knew, so it still
+-- has a challenge to play. Returns the day and whether the clock is synced.
+local function today()
+  local t = sys.time and sys.time()
+  if t then
+    local d = t // 86400
+    if storage.get("day") ~= d then storage.set("day", d) end
+    return d, true
+  end
+  return storage.get("day") or DAY_ONE, false
+end
+
+local function daily_best(d)
+  return (daily.day == d) and daily.best or 0
+end
 
 -- Versus
 local VS = { peer = nil, name = "", game = 0, sent = 0, got = 0, pending = 0,
@@ -387,6 +408,11 @@ local function update_panel()
     L.v2:text(tostring(math.max(0, SPRINT_LINES - lines)))
     L.k5:text("TIME")
     L.v5:text(clock(play_ms))
+  elseif mode == "daily" then
+    L.k2:text("BLOCKS")
+    L.v2:text(tostring(lines))
+    L.k5:text("TIME LEFT")
+    L.v5:text(clock(math.max(0, DAILY_MS - play_ms)))
   else
     L.k2:text("BLOCKS")
     L.v2:text(tostring(lines))
@@ -638,7 +664,8 @@ local function new_game(seed)
   L.cluster:text("MAINNET") L.cluster:color(CLUSTERS[1].color)
   set_game_visible(true)
   show_message(nil)
-  L.title:text(mode == "sprint" and "SPRINT 40" or (mode == "versus" and "VERSUS" or "PROOF OF STACK"))
+  L.title:text(mode == "sprint" and "SPRINT 40" or (mode == "versus" and "VERSUS" or
+    (mode == "daily" and ("DAILY #" .. (today() - DAY_ONE + 1)) or "PROOF OF STACK")))
   if mode == "versus" then
     render_peer({})
   end
@@ -663,6 +690,16 @@ function finish(won)
       line = line .. "  NEW BEST"
     end
     sweep()
+  elseif mode == "daily" then
+    local d = today()
+    title = won and "TIME'S UP" or "BLOCKSPACE FULL"
+    line = commas(score) .. " lamports"
+    if score > daily_best(d) then
+      daily = { day = d, best = score }
+      storage.set("daily", daily)
+      line = line .. "  BEST TODAY"
+      sweep()
+    end
   elseif mode == "versus" then
     title = won and "YOU WIN!" or "BLOCKSPACE FULL"
     line = won and (VS.name .. "'s blockspace is full") or (VS.name .. " wins")
@@ -679,7 +716,7 @@ function finish(won)
     flash(0x99, 0x45, 0xFF, 500)
   end
   storage.set("best", best)
-  show_message(title, line .. "   SELECT again")
+  show_message(title, line)              -- the hint bar says what SELECT does
   ui.hint(mode == "versus" and "SELECT lobby   CANCEL menu" or "SELECT play again   CANCEL menu")
 end
 
@@ -732,8 +769,10 @@ local board = require("scores").new({
     { label = "MARATHON LAMPORTS" },
     { label = "SPRINT 40 TIME", low = true, fmt = clock },
     { label = "VERSUS WINS" },
+    { label = "TODAY'S DAILY", daily = true },
   },
-  mine = function() return { best.lamports or 0, best.sprint or 0, best.wins or 0 } end,
+  mine = function() return { best.lamports or 0, best.sprint or 0, best.wins or 0, daily_best(today()) } end,
+  day = function() return (today()) end,
 })
 
 ---------------------------------------------------------------------------
@@ -741,10 +780,17 @@ local board = require("scores").new({
 ---------------------------------------------------------------------------
 local close_menu, close_lobby, open_lobby
 
+-- The same pieces on every badge on the same day.
+local function daily_seed()
+  return (today() * 7919 + 104729) % 2147483000
+end
+
 local function menu_items()
   return {
     { title = "1 player: Marathon", right = (best.lamports or 0) > 0 and commas(best.lamports) or nil },
     { title = "1 player: Sprint 40", right = (best.sprint or 0) > 0 and clock(best.sprint) or nil },
+    { title = "Daily challenge #" .. (today() - DAY_ONE + 1),
+      right = daily_best(today()) > 0 and commas(daily_best(today())) or nil },
     { title = "2 players: 2 badges", right = (best.wins or 0) > 0 and ("wins " .. best.wins) or nil },
     { title = "Nearby leaderboard" },
   }
@@ -756,16 +802,17 @@ local function open_menu()
   set_game_visible(false)
   show_message(nil)
   if has_led then led.off() end
-  menu_title = ui.label(0, 22, "PROOF OF STACK", { size = 32, color = 0xFFFFFF, w = W, align = "center" })
-  menu_sub = ui.label(0, 64, "Finalize blocks. Earn lamports. Don't fill the blockspace.",
+  menu_title = ui.label(0, 8, "PROOF OF STACK", { size = 32, color = 0xFFFFFF, w = W, align = "center" })
+  menu_sub = ui.label(0, 46, "Finalize blocks. Earn lamports. Don't fill the blockspace.",
     { size = 12, color = "dim", w = W, align = "center" })
-  menu_back = ui.rect(34, 90, W - 68, 116, { color = 0x15102A, radius = 8, border = "border" })
-  menu = ui.list(40, 94, W - 80, 108, menu_items(), {
+  menu_back = ui.rect(34, 66, W - 68, 140, { color = 0x15102A, radius = 8, border = "border" })
+  menu = ui.list(40, 70, W - 80, 132, menu_items(), {
     on_select = function(i)
       menu_i = i
       if i == 1 then close_menu() mode = "marathon" new_game(math.random(1, 2147483000))
       elseif i == 2 then close_menu() mode = "sprint" new_game(math.random(1, 2147483000))
-      elseif i == 4 then close_menu() state = "board" board:open(function() open_menu() end)
+      elseif i == 3 then close_menu() mode = "daily" new_game(daily_seed())
+      elseif i == 5 then close_menu() state = "board" board:open(function() open_menu() end)
       elseif not has_mesh then ui.toast("Versus needs the mesh radio")
       else close_menu() open_lobby() end
     end,
@@ -940,6 +987,10 @@ function on_tick(ms)
   if state ~= "play" then return end
   ms = math.min(ms, 100)
   play_ms = play_ms + ms
+  if mode == "daily" and play_ms >= DAILY_MS then
+    finish(true)
+    return
+  end
   slot_t = slot_t + ms
   while slot_t >= SLOT_MS do slot_t = slot_t - SLOT_MS slot = slot + 1 end
 
@@ -980,6 +1031,7 @@ function on_key(key, rep)
   if state == "over" then
     if key == "select" and not rep then
       if mode == "versus" then leave_versus() open_lobby()
+      elseif mode == "daily" then new_game(daily_seed())
       else new_game(math.random(1, 2147483000)) end
     end
     return true

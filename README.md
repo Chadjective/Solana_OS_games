@@ -228,11 +228,20 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
   - **1 player: Marathon.** Play as long as you can. The best score is saved.
   - **1 player: Sprint 40.** Finalize 40 blocks as fast as you can. The best
     time is saved.
+  - **Daily challenge.** A 2-minute race for lamports, with the **same
+    pieces on every badge** that day, so everyone plays the same game. It's
+    numbered from 1 January 2026 (#1). Your best today is saved and shown
+    in the menu, and the nearby leaderboard has a **Today's daily**
+    category (scores from other days are left out). The date comes from
+    the badge's clock, which is set once the badge has been online; without
+    it, the badge uses the last day it knew.
   - **2 players: 2 badges.** Versus over the badge radio. Finalizing 2, 3 or
     4 blocks at once sends 1, 2 or 4 **spam transaction** rows to the other
     player, which rise from the bottom of their board with one gap each.
     Spam you finalize away first cancels spam headed your way. You see the
     other player's stack in a mini view. Both players get the same pieces.
+
+![The daily challenge: today's best in the menu, a game with the clock running down, and time's up](docs/proof-of-stack-daily.png)
 
 ![Cluster switch: Mainnet (falling down), Devnet (sideways), Testnet (rising) and Localnet (here falling left)](docs/proof-of-stack-clusters.png)
 
@@ -259,7 +268,7 @@ around you, with yours, best first. LEFT/RIGHT switches category:
 |---|---|
 | Solana Pong | Wins vs CPU, 2-badge wins |
 | Solana Monkey Bomb | Best match points, matches won |
-| Proof of Stack | Marathon lamports, Sprint 40 time (lowest first), versus wins |
+| Proof of Stack | Marathon lamports, Sprint 40 time (lowest first), versus wins, today's daily |
 
 - While a game is open, the badge announces its own bests over the radio
   every 3 seconds (paused during two-badge games, so they keep the radio).
@@ -304,7 +313,9 @@ These run on a computer, not on the badge.
 - `python3 tools/test_proof_of_stack.py` plays Proof of Stack with a bot that
   reads the board off the screen: a Sprint to 40 blocks, a Marathon to the
   end, a Marathon through all four clusters (120 blocks, every gravity
-  direction), a check that spam rows reach the other badge, and a versus match
+  direction), the daily challenge (the same pieces on two badges on the
+  same date, time's up after 2 minutes, today's best saved, a new number
+  the next day), a check that spam rows reach the other badge, and a versus match
   between two badges with 15% of messages dropped, where both must agree on
   the winner.
 - `python3 tools/test_scores.py` checks the nearby leaderboards in all three
