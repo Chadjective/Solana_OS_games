@@ -88,8 +88,9 @@ function Lobby:refresh()
     items[i] = { title = Lobby.name_of(id), right = right }
   end
   self.list:items(items)
-  self.info:text(#items == 0 and ("Looking for players... Open " .. self.opts.game .. " on another badge.")
-    or "Pick a player and press SELECT to invite them.")
+  -- Short: the badge's small text is fixed-width, about 40 characters a line.
+  self.info:text(#items == 0 and "Looking for players nearby..."
+    or "SELECT a player to invite them.")
 end
 
 function Lobby:open()

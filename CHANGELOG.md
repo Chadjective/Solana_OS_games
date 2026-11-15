@@ -17,7 +17,12 @@ Versions: **1.1.0** = a new feature, **1.0.1** = a fix only.
 - **Quitting a 2-badge game:** the "player left" message is now sent three
   times, so the other player finds out straight away even if one copy is
   lost (before, a lost message meant waiting for the 5-second timeout).
-- New file: `scores.lua` (the shared leaderboard).
+- **How to play:** a new menu entry with pages on the goal, the buttons
+  and the 2-badge mode.
+- Behind the scenes: the lobby now uses the shared `lobby.lua` (it still
+  marks players connected through a server bridge as "far: laggy").
+- New files: `scores.lua`, `lobby.lua`, `help.lua` (shared by all the
+  games) and `howto.lua` (the How to play text).
 
 ### 1.0.0 (first upload)
 - Pong with the Solana mark as the ball and the bars of the "S" as the
@@ -42,9 +47,14 @@ Versions: **1.1.0** = a new feature, **1.0.1** = a fix only.
 - **Faster start of each round** (the London Eye and office windows draw
   more cheaply).
 - **Quitting a 2-badge game:** the goodbye is sent three times.
+- **Turn clock:** each turn lasts at most 30 seconds (counted down top
+  right). When it runs out, a throw being charged goes at its current
+  power; otherwise the turn passes. No more stalled games.
+- **How to play:** a new menu entry with pages on walking, aiming, the
+  weapons, pickups, weather and the 2-player modes.
 - Behind the scenes: `main.lua` split into `cpu.lua`, `lobby.lua` and
   `art.lua` (it was close to the store's 64 KB per-file limit), plus the
-  shared `scores.lua`. No change to how it plays.
+  shared `scores.lua`, `lobby.lua` and `help.lua`, and `howto.lua`.
 
 ### 1.0.0 (first upload)
 - Turn-based throwing game over a London skyline of 20 landmarks, with
@@ -70,3 +80,5 @@ Versions: **1.1.0** = a new feature, **1.0.1** = a fix only.
 - **Nearby leaderboard:** marathon lamports, sprint time, versus wins,
   today's daily.
 - Colours: seven steps of the Solana purple-to-green gradient.
+- **How to play** pages: the goal, the buttons, the cluster switch and the
+  modes.

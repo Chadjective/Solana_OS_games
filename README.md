@@ -79,6 +79,9 @@ A turn-based throwing game over London, with a nod to the SMB community.
   Palace, Tower Bridge, the O2, Wembley or Somerset House) appears per round. Some have see-through parts that bombs fly
   through, such as the inside of the London Eye and the space under Tower
   Bridge.
+- **Each turn has 30 seconds** (counted down top right, in purple for the
+  last 10). When it runs out, a throw you're charging goes at its current
+  power; otherwise the turn passes.
 - **Move around before you throw.** Each turn starts in walk mode with an
   energy bar (100 per turn). Walk along rooftops, drop into the gaps, and
   **climb** any building: hold UP facing a wall (or walk into it) and your
@@ -257,6 +260,16 @@ arrows turn with gravity, as in the table above.
 | `proof-of-stack/app.json` | The manifest. |
 | `proof-of-stack/scores.lua` | The nearby leaderboard (a copy of `shared/scores.lua`). |
 
+## How to play (all games)
+
+![How to play: a page each from Pong, Monkey Bomb and Proof of Stack](docs/how-to-play.png)
+
+Every game's menu ends with **How to play**: a few short pages (LEFT/RIGHT to
+turn, CANCEL to go back) on the goal, the buttons and the modes. The pages
+are in each game's `howto.lua` (at most 11 lines a page and 40 characters a
+line: the badge's small text is a fixed-width font), shown by the shared
+`help.lua`.
+
 ## Nearby leaderboards (all games)
 
 ![The nearby leaderboard in Proof of Stack: Marathon lamports and Sprint 40 times from the badges around you](docs/leaderboard-preview.png)
@@ -278,6 +291,18 @@ around you, with yours, best first. LEFT/RIGHT switches category:
   Players still nearby show as "here now"; ones who've left as "earlier".
 - It's one module, `shared/scores.lua`, copied into every game's folder by
   `python3 tools/sync_shared.py` (edit the copy in `shared/`, then run it).
+
+## Shared modules
+
+Code every game uses lives once in `shared/` and is copied into each game's
+folder (each game ships as its own folder) by `python3 tools/sync_shared.py`.
+Edit the copy in `shared/`, then run it; `--check` only checks the copies match.
+
+| Module | What it does |
+|---|---|
+| `lobby.lua` | The two-badge lobby (finding nearby players, invites, starting a game) and the radio, limited to the mesh's 4 messages a second |
+| `scores.lua` | The nearby leaderboard |
+| `help.lua` | The How to play pages |
 
 ## Versions
 
@@ -328,6 +353,8 @@ These run on a computer, not on the badge.
   games: two badges hear each other's bests, the ranking (and lowest-first
   times), switching category, "here now" then "earlier", remembering after
   a restart, and that the shared copies match.
+- `python3 tools/test_help.py` checks the How to play pages in every game:
+  all pages open and turn, every line fits, CANCEL goes back.
 - `python3 tools/sync_shared.py` copies `shared/` modules into the games
   (`--check` only checks).
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.

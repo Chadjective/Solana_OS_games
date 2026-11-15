@@ -510,6 +510,11 @@ local board = require("scores").new({
 })
 
 ---------------------------------------------------------------------------
+-- How to play (help.lua, shared by all the games)
+---------------------------------------------------------------------------
+local help = require("help").new(require("howto"))   -- the pages are in howto.lua
+
+---------------------------------------------------------------------------
 -- Menu
 ---------------------------------------------------------------------------
 local function menu_items()
@@ -520,6 +525,7 @@ local function menu_items()
   end
   items[#items + 1] = { title = "2 players: 2 badges", right = duo_wins > 0 and ("wins " .. duo_wins) or nil }
   items[#items + 1] = { title = "Nearby leaderboard" }
+  items[#items + 1] = { title = "How to play" }
   return items
 end
 
@@ -542,6 +548,10 @@ local function open_menu()
         close_menu()
         state = "board"
         board:open(function() open_menu() end)
+      elseif i == #LEVELS + 3 then
+        close_menu()
+        state = "help"
+        help:open(function() open_menu() end)
       elseif not has_mesh then
         ui.toast("Two-badge games need the mesh radio")
       else
@@ -671,6 +681,7 @@ end
 
 function on_key(key, rep)
   if state == "board" then return board:key(key, rep) end
+  if state == "help" then return help:key(key, rep) end
   if state == "menu" then
     return key ~= "back"               -- the list handles up/down/select
   end

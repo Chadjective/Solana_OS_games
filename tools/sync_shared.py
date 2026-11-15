@@ -14,7 +14,7 @@ import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 GAMES = ["pong", "monkey-bomb", "proof-of-stack"]
-SHARED = {"scores.lua": GAMES, "lobby.lua": GAMES}
+SHARED = {"scores.lua": GAMES, "lobby.lua": GAMES, "help.lua": GAMES}
 
 
 def main():

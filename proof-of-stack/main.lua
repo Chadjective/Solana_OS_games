@@ -759,6 +759,11 @@ local board = require("scores").new({
 })
 
 ---------------------------------------------------------------------------
+-- How to play (help.lua, shared by all the games)
+---------------------------------------------------------------------------
+local help = require("help").new(require("howto"))   -- the pages are in howto.lua
+
+---------------------------------------------------------------------------
 -- Menus
 ---------------------------------------------------------------------------
 local close_menu, close_lobby, open_lobby
@@ -776,6 +781,7 @@ local function menu_items()
       right = daily_best(today()) > 0 and commas(daily_best(today())) or nil },
     { title = "2 players: 2 badges", right = (best.wins or 0) > 0 and ("wins " .. best.wins) or nil },
     { title = "Nearby leaderboard" },
+    { title = "How to play" },
   }
 end
 
@@ -786,7 +792,7 @@ local function open_menu()
   show_message(nil)
   if has_led then led.off() end
   menu_title = ui.label(0, 8, "PROOF OF STACK", { size = 32, color = 0xFFFFFF, w = W, align = "center" })
-  menu_sub = ui.label(0, 46, "Finalize blocks. Earn lamports. Don't fill the blockspace.",
+  menu_sub = ui.label(0, 46, "Finalize blocks. Earn lamports.",
     { size = 12, color = "dim", w = W, align = "center" })
   menu_back = ui.rect(34, 66, W - 68, 140, { color = 0x15102A, radius = 8, border = "border" })
   menu = ui.list(40, 70, W - 80, 132, menu_items(), {
@@ -796,6 +802,7 @@ local function open_menu()
       elseif i == 2 then close_menu() mode = "sprint" new_game(math.random(1, 2147483000))
       elseif i == 3 then close_menu() mode = "daily" new_game(daily_seed())
       elseif i == 5 then close_menu() state = "board" board:open(function() open_menu() end)
+      elseif i == 6 then close_menu() state = "help" help:open(function() open_menu() end)
       elseif not has_mesh then ui.toast("Versus needs the mesh radio")
       else close_menu() open_lobby() end
     end,
@@ -932,6 +939,7 @@ end
 
 function on_key(key, rep)
   if state == "board" then return board:key(key, rep) end
+  if state == "help" then return help:key(key, rep) end
   if state == "menu" then return key ~= "back" end
   if state == "lobby" then
     if key == "back" and not rep then close_lobby() open_menu() end
