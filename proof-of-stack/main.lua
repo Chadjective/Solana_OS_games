@@ -148,10 +148,11 @@ local L = {
   title = lab(4, 2, "PROOF OF STACK", 12, 0xFFFFFF, 102, "left"),
   cluster = lab(4, 16, "MAINNET", 12, GREEN, 102, "left"),
   k1 = lab(4, 34, "BITS", 12, "dim"), v1 = lab(4, 46, "0", 14, 0xFFFFFF),
-  k2 = lab(4, 66, "BLOCKS", 12, "dim"), v2 = lab(4, 78, "0", 14, 0xFFFFFF),
-  k3 = lab(4, 98, "EPOCH", 12, "dim"), v3 = lab(4, 110, "1", 14, 0xFFFFFF),
-  k4 = lab(4, 130, "SLOT", 12, "dim"), v4 = lab(4, 142, "0", 14, 0xFFFFFF),
-  k5 = lab(4, 162, "TPS", 12, "dim"), v5 = lab(4, 174, "0", 14, 0xFFFFFF),
+  k2 = lab(4, 62, "BLOCKS", 12, "dim"), v2 = lab(4, 74, "0", 14, 0xFFFFFF),
+  k3 = lab(4, 90, "EPOCH", 12, "dim"), v3 = lab(4, 102, "1", 14, 0xFFFFFF),
+  k4 = lab(4, 118, "SLOT", 12, "dim"), v4 = lab(4, 130, "0", 14, 0xFFFFFF),
+  k5 = lab(4, 146, "TPS", 12, "dim"), v5 = lab(4, 158, "0", 14, 0xFFFFFF),
+  k6 = lab(4, 174, "BPS", 12, "dim"), v6 = lab(4, 186, "0.00", 14, 0xFFFFFF),
   nxt = lab(216, 4, "NEXT TX", 12, "dim", 100, "center"),
   msg1 = lab(214, 50, "", 12, GREEN, 104, "center"),
   msg2 = lab(214, 66, "", 14, 0xFFFFFF, 104, "center"),
@@ -196,6 +197,8 @@ local das_dir, das_t = 0, 0
 local score, lines, epoch, slot = 0, 0, 1, 0
 local slot_t, play_ms = 0, 0
 local locks = {}          -- when recent pieces locked (for the TPS meter)
+local finals = {}         -- when blocks were finalized, and how many (for BPS)
+local BPS_WINDOW = 20000  -- BPS counts the blocks finalized in the last 20 s
 local clearing = nil      -- rows being finalized, and when the flash ends
 local now = 0
 local msg_timer = nil
@@ -488,6 +491,12 @@ local function update_panel()
     for _, t in ipairs(locks) do if now - t < 10000 then n = n + 1 end end
     L.v5:text(commas(n * 6500))
   end
+  -- Blocks per second: blocks finalized in the last 20 s (or since the start,
+  -- if sooner), over that time. Solana itself makes 2.5 (a block a slot).
+  local b = 0
+  for _, f in ipairs(finals) do if now - f[1] < BPS_WINDOW then b = b + f[2] end end
+  local secs = math.max(5000, math.min(BPS_WINDOW, play_ms)) / 1000
+  L.v6:text(string.format("%.2f", b / secs))
   L.v3:text(tostring(epoch))
   L.v4:text(commas(slot))
   L.spam:text(VS.pending > 0 and ("INCOMING SPAM " .. VS.pending) or "")
@@ -643,6 +652,8 @@ local function finish_clear()
   local n = #rows
   local old_epoch = epoch
   lines = lines + n
+  finals[#finals + 1] = { now, n }
+  if #finals > 40 then table.remove(finals, 1) end
   local pay = ({ 5000, 15000, 30000, 60000 })[n] * epoch
   score = score + pay
   epoch = 1 + lines // 10
@@ -725,7 +736,7 @@ local function new_game(seed)
   end
   bag = {}
   score, lines, epoch, slot, slot_t, play_ms = 0, 0, 1, 0, 0, 0
-  locks, clearing = {}, nil
+  locks, finals, clearing = {}, {}, nil
   VS.sent, VS.got, VS.pending, VS.over_at, VS.result = 0, 0, 0, nil, nil
   das_dir, das_t = 0, 0
   next_k = draw_bag()

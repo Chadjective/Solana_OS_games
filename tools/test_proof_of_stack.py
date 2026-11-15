@@ -430,6 +430,9 @@ def main():
     calls, paid = awards(sim)
     print(f"  !LAMPs asked: {calls}, paid {paid}")
     assert calls[-1] == (10, "Sprint 40"), calls
+    bps = float(value(sim, "BPS"))
+    print(f"  BPS at the finish: {bps:.2f}")
+    assert 0.3 < bps < 5, bps
     assert ("+10 !LAMPs  Sprint 40") in toasts(sim)
 
     # Marathon: a sloppier bot plays until the blockspace is full.

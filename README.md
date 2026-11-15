@@ -215,7 +215,8 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
   buttons. SELECT always drops instantly.
 - **SLOT** ticks at Solana's real slot time (about 400 ms), and **TPS** shows
   how fast you're playing (about one piece a second reads as Solana's famous
-  65,000).
+  65,000). **BPS** is blocks per second: the blocks you finalized in the
+  last 20 seconds, per second (Solana itself makes 2.5, one every slot).
 - Each finalized block flashes one of the eight ideas Solana was built on:
   Proof of History, Tower BFT, Turbine, Gulf Stream, Sealevel, Pipelining,
   Cloudbreak and Archivers.
