@@ -211,6 +211,72 @@ def play_duo(rnd, loss=0.2, max_ticks=120000):
     raise AssertionError("two-badge match never finished")
 
 
+def timer_check():
+    """A player who does nothing for 30 s loses the turn: on one badge, and on
+    two badges, where both must agree."""
+    # Pass the badge: P1 idles.
+    sim = Sim("monkey-bomb")
+    sim.press("down")
+    sim.press("down")
+    sim.press("select")
+    sim.tick(30, 5)
+    first = "P1:" if any(t.startswith("P1: walk") for t in texts(sim)) else "P2:"
+    other = "P2:" if first == "P1:" else "P1:"
+    seen_up = False
+    for _ in range(1100):                           # 33 s
+        sim.tick(30)
+        if any("TIME'S UP" in t for t in texts(sim)):
+            seen_up = True
+        if any(t.startswith(other + " walk") for t in texts(sim)):
+            break
+    assert seen_up and any(t.startswith(other + " walk") for t in texts(sim)), texts(sim)
+
+    # Two badges: whoever's turn it is idles; both badges move on together.
+    net.LOSS = 0.2
+    stats = {"max_size": 0, "lost": 0}
+    a = Sim("monkey-bomb", badge_id="AAAAAA", name="@alice"); a.sent = []
+    b = Sim("monkey-bomb", badge_id="BBBBBB", name="@bob"); b.sent = []
+    net.link(a, b)
+
+    def tick(n=1):
+        for _ in range(n):
+            a.tick(30)
+            b.tick(30)
+            net.pump(a, b, stats)
+            net.pump(b, a, stats)
+    for s_ in (a, b):
+        for _ in range(3):
+            s_.press("down")
+        s_.press("select")
+    for _ in range(300):
+        tick()
+        if "@bob" in [str(i.title) for i in a.M.focus_list._items.values()]:
+            break
+    a.press("select")
+    for _ in range(300):
+        tick()
+        if b.M.confirm is not None:
+            break
+    b.M.answer(True)
+    for _ in range(300):
+        tick()
+        if my_turn(a) or my_turn(b):
+            break
+    idler, watcher = (a, b) if my_turn(a) else (b, a)
+    up_seen = False
+    for _ in range(1400):                           # up to 42 s
+        tick()
+        if any("TIME'S UP" in t for t in texts(watcher)):
+            up_seen = True
+        if my_turn(watcher):
+            break
+    assert my_turn(watcher) and not my_turn(idler), (texts(a), texts(b))
+    assert up_seen, texts(watcher)
+    assert canvas_pixels(a) == canvas_pixels(b) and monkey_spots(a) == monkey_spots(b)
+    print("turn timer: an idle player's turn passes after 30 s, on one badge and on two "
+          "(both badges agree, with 20% of messages lost)")
+
+
 def main():
     rnd = random.Random(4)
     random.seed(4)
@@ -220,6 +286,7 @@ def main():
               f"peak {peak} instructions per callback")
         assert peak < BUDGET * 0.5, "too close to the badge's instruction limit"
 
+    timer_check()
     winner, throws = play_hotseat(rnd)
     print(f"pass the badge: {winner} after {throws} throws")
 

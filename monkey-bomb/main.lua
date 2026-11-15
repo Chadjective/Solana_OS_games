@@ -26,6 +26,7 @@ local STEP_MS = 8                    -- physics step: the same on every badge
 local STEP = STEP_MS / 1000
 local SAFE_STEPS = 30                -- a throw can't hit its thrower for this many steps
 local CHARGE_MS = 1500               -- holding SELECT from 0 to full power
+local TURN_MS = 30000                -- a player's turn (walking and aiming) lasts at most this
 
 -- Moving about: each turn starts with some energy to walk, climb and jump.
 local ENERGY = 100                   -- per turn
@@ -190,7 +191,8 @@ local hud_wind = ui.label(0, 2, "", { size = 12, color = "dim", w = W, align = "
 local hud_aim = ui.label(0, 16, "", { size = 12, color = 0xFFFFFF, w = W, align = "center" })
 local power_bar = ui.bar(W // 2 - 50, 31, 100, 5, 0)
 local popup = ui.label(0, 40, "", { size = 14, color = "yellow", w = W, align = "center" })
-local hud = { hud_l, hud_r, hud_wind, hud_aim, popup }
+local hud_clock = ui.label(W - 38, 16, "", { size = 12, color = 0xFFFFFF, w = 34, align = "right" })
+local hud = { hud_l, hud_r, hud_wind, hud_aim, popup, hud_clock }
 
 local panel = ui.rect(30, 62, W - 60, 74, { color = "panel", radius = 8, border = "border" })
 local msg = ui.label(30, 74, "", { size = 20, color = 0xFFFFFF, w = W - 60, align = "center" })
@@ -214,6 +216,7 @@ local aim = { { a = 45, p = 50, w = 1 }, { a = 45, p = 50, w = 1 } }
 local ammo = { {}, {} }
 local power = 0          -- while charging
 local energy = 0         -- left this turn for walking, climbing and jumping
+local turn_left = 0      -- ms left in this turn (players; the CPU doesn't need a clock)
 local jump = nil         -- { vx, vy } while the monkey is in the air
 local move_acc = 0       -- ms towards the next pixel walked
 local moved_at = 0       -- two badges: when we last told the other badge where we are
@@ -509,6 +512,7 @@ local function begin_turn()
   picked = {}
   energy = ENERGY
   jump = nil
+  turn_left = TURN_MS
   if who == "human" then
     state = "move"
     ui.hint(MOVE_HINT)
@@ -1103,17 +1107,20 @@ local function local_throw()
   end
 end
 
--- The monkey whose turn it is walked (or fell) into the Thames: the turn
--- ends without a throw. On two badges this goes out as a "throw" with
--- weapon 0, so the other badge sees the same.
-local function sink(i)
+-- The turn ends without a throw: the monkey walked (or fell) into the
+-- Thames, or the turn's time ran out. On two badges this goes out as a
+-- "throw" with weapon 0, so the other badge sees the same.
+local function no_throw(i)
   local m = monkeys[i]
   shots = shots + 1
+  jump = nil
   if mode == "duo" and controller(i) == "human" then
+    -- weapon 0: no throw (fell in the Thames, or ran out of time)
     pending = { t = "th", g = game_id, n = shots, a = 0, p = 0, w = 0,
-      x = m.x, y = m.y, f = m.face, c = 0, k = table.concat(picked) }
+      x = m.x, y = m.y, f = m.face, c = m.cling and 1 or 0, k = table.concat(picked) }
     send_throw()
   end
+  if not drowned(m) then show_popup(player_name(i) .. ": TIME'S UP!") end
   throw_info = { thrower = i, dmg = {}, pts = 0, news = {} }
   resolve_throw()
 end
@@ -1125,7 +1132,8 @@ local function remote_throw(m)
     if m.x then mk.x, mk.y, mk.face, mk.cling = m.x, m.y, m.f, m.c == 1 end
     for ch in tostring(m.k or ""):gmatch("%d") do take_item(turn, tonumber(ch)) end
     draw_monkey(turn, false)
-    if m.w == 0 then                      -- they fell in the Thames
+    if m.w == 0 then                      -- they fell in the Thames, or ran out of time
+      if not drowned(mk) then show_popup(player_name(turn) .. ": TIME'S UP!") end
       shots = shots + 1
       throw_info = { thrower = turn, dmg = {}, pts = 0, news = {} }
       resolve_throw()
@@ -1366,7 +1374,7 @@ local function move_tick(ms, forced_dir)
     tell_position(m)
     try_pickups(turn, true)
     update_hud()
-    if drowned(m) then sink(turn) end
+    if drowned(m) then no_throw(turn) end
   end
 end
 
@@ -1389,6 +1397,27 @@ function on_tick(ms)
   board:tick(ms, mode == "duo" and peer ~= nil)
   if mode == "duo" and state ~= "menu" and state ~= "lobby" then net_tick() end
   if state ~= "menu" and state ~= "lobby" then weather_tick(ms) end
+
+  -- The turn clock: shown top right; when it runs out a charging throw goes
+  -- at the power it has, otherwise the turn passes.
+  if state == "move" or state == "aim" or state == "charge" or state == "wait" then
+    local before = turn_left
+    turn_left = turn_left - ms
+    local secs = math.max(0, math.ceil(turn_left / 1000))
+    hud_clock:text(secs .. "s")
+    hud_clock:color(secs <= 10 and 0x9945FF or 0xFFFFFF)
+    if state ~= "wait" and secs <= 5 and math.ceil(before / 1000) ~= secs then flash(0x99, 0x45, 0xFF, 120) end
+    if turn_left <= 0 and state ~= "wait" then
+      if state == "charge" then
+        local_throw()
+      else
+        no_throw(turn)
+      end
+      return
+    end
+  else
+    hud_clock:text("")
+  end
 
   if state == "charge" then
     power = math.min(100, power + ms * 100 / CHARGE_MS)
