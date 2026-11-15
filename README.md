@@ -195,7 +195,9 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
 - **Transactions** fall into the **blockspace**. Fill a whole row to
   **finalize a block**: it clears and pays out in **lamports**, starting at
   5,000 (Solana's base fee per signature) and multiplied by the epoch.
-  Finalizing 4 at once is a **SUPERMAJORITY**.
+  Finalizing 4 at once is a **SUPERMAJORITY**: confetti in the Solana
+  colours bursts from the board (falling the way gravity points) and the
+  LEDs sweep.
 - **Epochs:** every 10 blocks a new epoch starts, and transactions fall
   faster.
 - **Cluster switch:** as the epochs go by, the game moves across Solana's
@@ -304,7 +306,7 @@ These run on a computer, not on the badge.
 - `python3 tools/test_proof_of_stack.py` plays Proof of Stack with a bot that
   reads the board off the screen: a Sprint to 40 blocks, a Marathon to the
   end, a Marathon through all four clusters (120 blocks, every gravity
-  direction), a check that spam rows reach the other badge, and a versus match
+  direction, and a SUPERMAJORITY's confetti appearing and clearing), a check that spam rows reach the other badge, and a versus match
   between two badges with 15% of messages dropped, where both must agree on
   the winner.
 - `python3 tools/test_scores.py` checks the nearby leaderboards in all three
@@ -314,6 +316,9 @@ These run on a computer, not on the badge.
 - `python3 tools/sync_shared.py` copies `shared/` modules into the games
   (`--check` only checks).
 - `python3 tools/sim.py pong <folder>` saves screenshots from a rough stand-in for the badge.
+
+The stand-in badge enforces the real badge's limit of 8 timers at a time, so
+a game that would crash with "too many timers (8)" fails its test too.
 
 The tools need `pip install lupa pillow`. The stand-in badge only approximates
 the real one, so always check in the official emulator too.
