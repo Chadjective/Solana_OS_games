@@ -76,6 +76,12 @@ def texts(sim):
     return [str(o.txt) for o in sim.M.objects.values() if o.kind == "label" and o.visible and not o.removed]
 
 
+def confetti(sim):
+    """How many confetti pieces are showing."""
+    return sum(1 for o in sim.M.objects.values()
+               if o.kind == "rect" and (o.w, o.h) in ((6, 6), (9, 4)) and o.visible and not o.removed)
+
+
 def canvas(sim, w, h):
     return next(o for o in sim.M.objects.values() if o.kind == "canvas" and o.w == w and o.h == h)
 
@@ -339,10 +345,22 @@ def clusters_check(shots_dir=None):
     sim.press("select")
     bot = Bot(sim, 1.0, random.Random(11))
     seen, order = {}, []
-    for _ in range(400000):
+    bursts, burst_at, shot = 0, None, False
+    for i in range(400000):
         bot.step()
         sim.tick(30)
         t = texts(sim)
+        # A SUPERMAJORITY (4 blocks at once) bursts confetti, which clears again.
+        flying = confetti(sim)
+        if "SUPERMAJORITY!" in t and burst_at is None and flying:
+            bursts, burst_at = bursts + 1, i
+        if burst_at is not None and i - burst_at == 6 and shots_dir and not shot:
+            sim.render(os.path.join(shots_dir, "supermajority-confetti.png"))
+            shot = True
+        if burst_at is not None and i - burst_at > 65:
+            assert not flying, "confetti should be gone 2 s after a burst"
+            if "SUPERMAJORITY!" not in t:
+                burst_at = None
         cluster = t[1] if len(t) > 1 else ""
         o = orientation(sim)
         key = (cluster, o)
@@ -355,6 +373,8 @@ def clusters_check(shots_dir=None):
             break
     print("clusters: " + ", ".join(f"{c} ({o}) from block {b}" for (c, o), b in
                                      sorted(seen.items(), key=lambda kv: int(kv[1] or 0))))
+    print(f"supermajority: {bursts} confetti bursts, cleared each time")
+    assert bursts > 0, "the run should finalize 4 blocks at once at least once"
     names = [c for c, _ in order]
     assert names[:4] == ["MAINNET", "DEVNET", "TESTNET", "LOCALNET"], order
     assert {o for c, o in order if c == "LOCALNET"} == {"down", "right", "up", "left"}, order

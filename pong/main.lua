@@ -156,22 +156,35 @@ local function show_message(a, b)
   end
 end
 
+-- The lights are moved along by on_tick, not by timers: the badge allows
+-- only 8 timers at a time, and a sweep would need 7 of them.
+local FX = { off_at = nil, sweep_t = nil, sweep_n = 0, r = 0, g = 0, b = 0 }
+
 local function flash(r, g, b, ms)
   if not has_led then return end
+  FX.sweep_t = nil
   led.fill(r, g, b)
-  timer.after(ms or 70, led.off)
+  FX.off_at = now + (ms or 70)
 end
 
 local function sweep(r, g, b)
   if not has_led then return end
-  for i = 1, 6 do
-    local n = i
-    timer.after(n * 40, function()
+  FX.off_at, FX.sweep_t, FX.sweep_n, FX.r, FX.g, FX.b = nil, 0, 0, r, g, b
+end
+
+local function fx_tick(ms)
+  if not has_led then return end
+  if FX.off_at and now >= FX.off_at then FX.off_at = nil led.off() end
+  if FX.sweep_t then
+    FX.sweep_t = FX.sweep_t + ms
+    local n = math.min(6, FX.sweep_t // 40)
+    if n > FX.sweep_n then
+      FX.sweep_n = n
       led.off()
-      led.set(n, r, g, b)
-    end)
+      led.set(n, FX.r, FX.g, FX.b)
+    end
+    if FX.sweep_t >= 300 then FX.sweep_t = nil led.off() end
   end
-  timer.after(300, led.off)
 end
 
 local function draw_ball(visible)
@@ -743,6 +756,7 @@ end
 ---------------------------------------------------------------------------
 function on_tick(ms)
   now = now + ms
+  fx_tick(ms)
   -- Announce our bests for nearby leaderboards, except during a 2-badge game.
   board:tick(ms, mode == "duo" and peer ~= nil and state == "play")
   if mode == "duo" and (state == "play" or state == "over") then

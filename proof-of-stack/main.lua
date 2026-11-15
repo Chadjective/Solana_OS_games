@@ -156,6 +156,19 @@ local L = {
 local GAME_OBJS = { frame, next_cv }
 for _, l in pairs(L) do GAME_OBJS[#GAME_OBJS + 1] = l end
 
+-- Confetti for a SUPERMAJORITY: a few small squares in the Solana colours,
+-- made once and hidden until a burst.
+local CONFETTI_N = 24
+local confetti = {}
+for i = 1, CONFETTI_N do
+  -- Alternate squares and strips, so the burst reads as paper confetti.
+  local w, h = 6, 6
+  if i % 2 == 0 then w, h = 9, 4 end
+  local r = ui.rect(0, 0, w, h, { color = GRADIENT[(i - 1) % #GRADIENT + 1], radius = 0 })
+  r:show(false)
+  confetti[i] = { obj = r }
+end
+
 local panel = ui.rect(70, 66, W - 140, 76, { color = "panel", radius = 8, border = "border" })
 local msg = ui.label(70, 78, "", { size = 20, color = 0xFFFFFF, w = W - 140, align = "center" })
 local sub = ui.label(70, 110, "", { size = 12, color = "dim", w = W - 140, align = "center" })
@@ -222,24 +235,76 @@ local function side_message(a, b, c)
   end)
 end
 
+-- Lights and confetti are moved along by on_tick, not by timers: the badge
+-- allows only 8 timers at a time (and the LED sweep alone would need 9).
+local FX = { led_off_at = nil, sweep_t = nil, sweep_n = 0, confetti_t = nil }
+local SWEEP_STEP = 45
+
 local function flash(r, g, b, ms)
   if not has_led then return end
+  FX.sweep_t = nil
   led.fill(r, g, b)
-  timer.after(ms or 100, led.off)
+  FX.led_off_at = now + (ms or 100)
 end
 
+-- A light runs across the LEDs from Solana Purple to Solana Green.
 local function sweep()
   if not has_led then return end
-  for i = 1, led.count do
-    local n = i
-    timer.after(n * 45, function()
-      led.off()
-      local t = (n - 1) / (led.count - 1)
-      led.set(n, math.floor(0x99 + (0x14 - 0x99) * t), math.floor(0x45 + (0xF1 - 0x45) * t),
-        math.floor(0xFF + (0x95 - 0xFF) * t))
-    end)
+  FX.led_off_at, FX.sweep_t, FX.sweep_n = nil, 0, 0
+end
+
+-- Confetti bursts from the middle of the board and falls the way
+-- transactions fall on this cluster.
+local function confetti_burst()
+  local cx, cy = BX + COLS * CELL, BY + ROWS * CELL
+  if orient == "right" or orient == "left" then cx, cy = 112 + ROWS * CELL, 52 + COLS * CELL end
+  for i, p in ipairs(confetti) do
+    local a = (i / CONFETTI_N) * 2 * math.pi + math.random() * 0.4
+    local v = 120 + math.random() * 150           -- pixels a second
+    p.x, p.y = cx, cy
+    p.vx, p.vy = math.cos(a) * v, math.sin(a) * v
+    p.obj:pos(cx, cy)
+    p.obj:show(true)
   end
-  timer.after(led.count * 45 + 200, led.off)
+  FX.confetti_t = 0
+end
+
+local function confetti_stop()
+  FX.confetti_t = nil
+  for _, p in ipairs(confetti) do p.obj:show(false) end
+end
+
+local CONFETTI_MS, CONFETTI_G = 1600, 300   -- how long a burst lasts; its gravity (px/s/s)
+local GRAVITY = { down = { 0, 1 }, up = { 0, -1 }, right = { 1, 0 }, left = { -1, 0 } }
+
+local function fx_tick(ms)
+  if has_led then
+    if FX.led_off_at and now >= FX.led_off_at then FX.led_off_at = nil led.off() end
+    if FX.sweep_t then
+      FX.sweep_t = FX.sweep_t + ms
+      local n = math.min(led.count, FX.sweep_t // SWEEP_STEP)
+      if n > FX.sweep_n then
+        FX.sweep_n = n
+        led.off()
+        local t = (n - 1) / (led.count - 1)
+        led.set(n, math.floor(0x99 + (0x14 - 0x99) * t), math.floor(0x45 + (0xF1 - 0x45) * t),
+          math.floor(0xFF + (0x95 - 0xFF) * t))
+      end
+      if FX.sweep_t >= led.count * SWEEP_STEP + 200 then FX.sweep_t = nil led.off() end
+    end
+  end
+  if FX.confetti_t then
+    FX.confetti_t = FX.confetti_t + ms
+    if FX.confetti_t >= CONFETTI_MS then confetti_stop() return end
+    local g = GRAVITY[orient] or GRAVITY.down
+    local dt = ms / 1000
+    for _, p in ipairs(confetti) do
+      p.vx = p.vx * 0.97 + g[1] * CONFETTI_G * dt
+      p.vy = p.vy * 0.97 + g[2] * CONFETTI_G * dt
+      p.x, p.y = p.x + p.vx * dt, p.y + p.vy * dt
+      p.obj:pos(math.floor(p.x), math.floor(p.y))
+    end
+  end
 end
 
 local function name_of(id)
@@ -404,6 +469,7 @@ end
 
 local function set_game_visible(on)
   for _, o in ipairs(GAME_OBJS) do o:show(on) end
+  if not on then confetti_stop() end
   local upright = orient == "down" or orient == "up"
   board_v:show(on and upright)
   board_h:show(on and not upright)
@@ -558,6 +624,7 @@ local function finish_clear()
   if n == 4 then
     side_message("SUPERMAJORITY!", "+" .. commas(pay), idea)
     sweep()
+    confetti_burst()
   else
     side_message(idea, "+" .. commas(pay), n .. " FINALIZED")
     flash(0x14, 0xF1, 0x95, 90)
@@ -756,6 +823,7 @@ local function open_menu()
   set_game_visible(false)
   show_message(nil)
   if has_led then led.off() end
+  FX.led_off_at, FX.sweep_t = nil, nil
   menu_title = ui.label(0, 22, "PROOF OF STACK", { size = 32, color = 0xFFFFFF, w = W, align = "center" })
   menu_sub = ui.label(0, 64, "Finalize blocks. Earn lamports. Don't fill the blockspace.",
     { size = 12, color = "dim", w = W, align = "center" })
@@ -918,6 +986,7 @@ end
 
 function on_tick(ms)
   now = now + ms
+  fx_tick(ms)
   -- Announce our bests for nearby leaderboards, except during a versus game.
   board:tick(ms, mode == "versus" and VS.peer ~= nil and (state == "play" or state == "clear"))
   if mode == "versus" and VS.peer and state ~= "menu" and state ~= "lobby" then

@@ -99,8 +99,14 @@ function led.off() M.leds = {} end
 
 timer = {}
 local tid = 0
-function timer.after(ms, fn) tid = tid + 1; M.timers[tid] = { at = M.now + ms, fn = fn }; return tid end
-function timer.every(ms, fn) tid = tid + 1; M.timers[tid] = { at = M.now + ms, fn = fn, every = ms }; return tid end
+-- The badge allows 8 timers at a time and stops the app on a 9th.
+local function room()
+  local n = 0
+  for _ in pairs(M.timers) do n = n + 1 end
+  if n >= 8 then error("too many timers (8)", 3) end
+end
+function timer.after(ms, fn) room(); tid = tid + 1; M.timers[tid] = { at = M.now + ms, fn = fn }; return tid end
+function timer.every(ms, fn) room(); tid = tid + 1; M.timers[tid] = { at = M.now + ms, fn = fn, every = ms }; return tid end
 function timer.cancel(id) M.timers[id] = nil end
 
 M.store = {}                 -- the app's storage (a test can fill it before the app starts)
@@ -163,8 +169,9 @@ function M.tick(ms)
   M.now = M.now + ms
   for id, t in pairs(M.timers) do
     if t.at <= M.now then
-      t.fn()
+      -- A one-shot timer is spent (and frees its place) as it fires.
       if t.every then t.at = t.at + t.every else M.timers[id] = nil end
+      t.fn()
     end
   end
   if on_tick then on_tick(ms) end
