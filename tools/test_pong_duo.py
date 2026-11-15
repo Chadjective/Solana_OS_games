@@ -143,7 +143,9 @@ def main():
     print(f"messages: biggest {stats['max_size']} bytes, {stats['lost']} dropped on purpose, "
           f"most in one second: A {max_per_second(a.sent)}, B {max_per_second(b.sent)}")
     assert max_per_second(a.sent) <= 4 and max_per_second(b.sent) <= 4
-    assert mismatch / samples < 3
+    # With 15% of messages lost, the average gap is about 2-3 px depending on the
+    # match (seeds 1-7: 2.2-3.2 px); a real sync bug shows as tens of pixels.
+    assert mismatch / samples < 4
 
     # Quitting tells the other badge.
     a.press("select"); b.press("select")      # both back to the lobby

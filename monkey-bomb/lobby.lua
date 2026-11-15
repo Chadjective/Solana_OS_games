@@ -2,13 +2,16 @@
 -- invite one, accept an invite, and start a game with a shared id.
 -- Also the radio itself, limited to the mesh's 4 messages a second.
 --
--- Written once, for any Solana OS game:
+-- Written once, for all the games: the copy in shared/ is the one to edit,
+-- and tools/sync_shared.py copies it into each game's folder.
 --
 --   local Lobby = require("lobby")
 --   local lobby = Lobby.new({
 --     title = "2 PLAYERS",            -- the lobby screen's heading
 --     game = "Monkey Bomb",           -- for "... wants to play Monkey Bomb"
 --     on_start = function(peer_id, game_id, host) end,
+--     far = "far: laggy",             -- optional: shown next to players reached
+--                                     -- through a server bridge (1-3 s slower)
 --   })
 --   lobby:open()  /  lobby:close()  /  lobby:is_open()
 --   Lobby.send(to, msg)               -- every radio message goes through here
@@ -53,6 +56,16 @@ function Lobby.name_of(id)
   return id
 end
 
+-- Is this badge reached through a server bridge (rather than the radio)?
+function Lobby.bridged(id)
+  if mesh then
+    for _, p in ipairs(mesh.nearby()) do
+      if p.id == id then return p.bridged end
+    end
+  end
+  return false
+end
+
 function Lobby.new(opts)
   return setmetatable({ opts = opts, shown = false, seen = {}, ids = {} }, Lobby)
 end
@@ -69,7 +82,10 @@ function Lobby:refresh()
   table.sort(self.ids)
   local items = {}
   for i, id in ipairs(self.ids) do
-    items[i] = { title = Lobby.name_of(id), right = self.invited == id and "invited" or nil }
+    local right = nil
+    if self.invited == id then right = "invited"
+    elseif self.opts.far and Lobby.bridged(id) then right = self.opts.far end
+    items[i] = { title = Lobby.name_of(id), right = right }
   end
   self.list:items(items)
   self.info:text(#items == 0 and ("Looking for players... Open " .. self.opts.game .. " on another badge.")

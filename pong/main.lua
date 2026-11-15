@@ -54,7 +54,6 @@ local FIRST_SERVE_WAIT = 1800
 -- Mesh radio (two-badge games). The badge allows 4 messages a second.
 local SEND_GAP = 260                -- ms at least between two messages (< 4 a second)
 local SEND_EVERY = 400              -- ms between routine updates
-local HELLO_EVERY = 1200            -- ms between "I'm here" broadcasts in the lobby
 local LOST_AFTER = 5000             -- ms of silence before the other badge counts as gone
 local HOLD_MAX = 220                -- ms the ball waits at the other paddle for its verdict
 
@@ -125,12 +124,7 @@ local over_reason = nil
 
 -- Menus
 local menu, menu_logo, menu_title = nil, nil, nil
-local lobby_list, lobby_title, lobby_info = nil, nil, nil
-local lobby_ids = {}     -- ids shown in the lobby list, in order
-local seen = {}          -- id -> ms when we last heard "hello" from it
-local invited = nil      -- id we invited, waiting for their answer
-local asking = nil       -- id whose invite is on screen right now
-local hello_timer = nil
+local lobby                -- the two-badge lobby (lobby.lua), made with the menus
 
 local wins = storage.get("wins") or { 0, 0, 0 }
 local duo_wins = storage.get("duo_wins") or 0
@@ -202,25 +196,10 @@ local function update_scores()
   score_r:text(tostring(score[2]))
 end
 
--- A badge's display name, from the mesh's list of nearby badges.
-local function name_of(id)
-  if has_mesh then
-    for _, p in ipairs(mesh.nearby()) do
-      if p.id == id then
-        if p.name and p.name ~= "" then return p.name end
-        break
-      end
-    end
-  end
-  return id
-end
-
-local function is_bridged(id)
-  for _, p in ipairs(mesh.nearby()) do
-    if p.id == id then return p.bridged end
-  end
-  return false
-end
+-- The radio (at most 4 messages a second) and badge names: lobby.lua,
+-- shared by all the games.
+local Lobby = require("lobby")
+local radio_send, name_of = Lobby.send, Lobby.name_of
 
 -- Where will the ball's centre be (in y) when it reaches x = tx?
 -- Follows bounces off the top and bottom walls.
@@ -241,20 +220,6 @@ end
 ---------------------------------------------------------------------------
 -- Two badges: messages
 ---------------------------------------------------------------------------
--- Every message goes through here, so this badge never sends more than 4 in
--- any second (the mesh's limit). Returns false if it had to skip one; the
--- game repeats what matters, so a skipped message is never fatal.
-local sent_at = { -100000, -100000, -100000, -100000 }   -- times of the last 4 sends
-local function radio_send(to, m)
-  -- The badge's own clock: unlike `now`, it's exact inside timers too.
-  local t = sys.millis()
-  if t - sent_at[1] < 1000 then return false end   -- at most 4 a second
-  table.remove(sent_at, 1)
-  sent_at[4] = t
-  mesh.send(to, m)
-  return true
-end
-
 -- The ball's state right now becomes the shared "event" the other badge
 -- follows. Rounded, so both badges start from exactly the same numbers.
 local function new_event()
@@ -596,75 +561,20 @@ function close_menu()
 end
 
 ---------------------------------------------------------------------------
--- Lobby: find another badge running Solana Pong and invite it
+-- Lobby: find another badge running Solana Pong and invite it (lobby.lua)
 ---------------------------------------------------------------------------
-local function refresh_lobby()
-  if not lobby_list then return end
-  lobby_ids = {}
-  local items = {}
-  for id, t in pairs(seen) do
-    if now - t < 4000 then
-      lobby_ids[#lobby_ids + 1] = id
-    end
-  end
-  table.sort(lobby_ids)
-  for i, id in ipairs(lobby_ids) do
-    local right = nil
-    if invited == id then right = "invited"
-    elseif is_bridged(id) then right = "far: laggy" end
-    items[i] = { title = name_of(id), right = right }
-  end
-  lobby_list:items(items)
-  if #items == 0 then
-    lobby_info:text("Looking for players... Open Solana Pong on a badge nearby.")
-  else
-    lobby_info:text("Pick a player and press SELECT to invite them.")
-  end
-end
-
 function open_lobby()
   state = "lobby"
-  invited, asking = nil, nil
-  seen = {}
-  lobby_title = ui.label(0, 8, "2 PLAYERS", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
-  lobby_info = ui.label(16, 36, "", { size = 12, color = "dim", w = W - 32, align = "center" })
-  lobby_list = ui.list(40, 60, W - 80, 140, {}, {
-    on_select = function(i)
-      local id = lobby_ids[i]
-      if not id then return end
-      invited = id
-      radio_send(id, { t = "inv" })
-      ui.toast("Invite sent to " .. name_of(id))
-      refresh_lobby()
-    end,
-  })
-  ui.hint("SELECT invite   CANCEL back")
-  radio_send("*", { t = "hi" })
-  hello_timer = timer.every(HELLO_EVERY, function()
-    if state == "lobby" then
-      radio_send("*", { t = "hi" })
-      if invited then radio_send(invited, { t = "inv" }) end   -- in case it got lost
-      refresh_lobby()
-    end
-  end)
-  refresh_lobby()
+  lobby:open()
 end
 
 function close_lobby()
-  if hello_timer then timer.cancel(hello_timer) hello_timer = nil end
-  if lobby_list then lobby_list:remove() lobby_list = nil end
-  if lobby_title then lobby_title:remove() lobby_title = nil end
-  if lobby_info then lobby_info:remove() lobby_info = nil end
+  lobby:close()
 end
 
-local function accept_invite(id)
-  local g = math.random(1, 999999)
-  -- Tell them twice: a message can get lost (and they also start when our
-  -- first game message reaches them).
-  radio_send(id, { t = "go", g = g })
-  timer.after(300, function() radio_send(id, { t = "go", g = g }) end)
-  start_duo_game(id, g, false)
-end
+-- Real-time Pong is too slow through a server bridge, so the lobby marks
+-- those players.
+lobby = Lobby.new({ title = "2 PLAYERS", game = "Solana Pong", far = "far: laggy", on_start = start_duo_game })
 
 ---------------------------------------------------------------------------
 -- Two badges: receiving
@@ -700,33 +610,9 @@ end
 
 function on_mesh(from, m)
   if type(m) ~= "table" then return end
-  if board:handle(from, m) then return end
-  if m.t == "hi" then
-    local is_new = seen[from] == nil
-    seen[from] = now
-    if state == "lobby" and is_new then refresh_lobby() end
-  elseif m.t == "inv" then
-    seen[from] = now
-    if state == "lobby" and asking == nil then
-      if invited == from then
-        -- We invited each other: the smaller id hosts and starts the game.
-        if badge.id() and badge.id() < from then accept_invite(from) end
-        return
-      end
-      asking = from
-      ui.confirm(name_of(from) .. " wants to play Pong. Play?", function(yes)
-        asking = nil
-        if yes and state == "lobby" then accept_invite(from) end
-      end)
-    end
-  elseif m.t == "go" then
-    if state == "lobby" and invited == from then
-      start_duo_game(from, m.g, true)
-    end
-  elseif m.t == "s" then
-    if state == "lobby" and invited == from and m.g then
-      start_duo_game(from, m.g, true)    -- their "go" was lost, but they've started
-    end
+  if lobby:handle(from, m) then return end      -- hello, invites, and the game starting
+  if board:handle(from, m) then return end      -- nearby leaderboard scores
+  if m.t == "s" then
     if mode == "duo" and from == peer and m.g == game_id and (state == "play" or state == "over") then
       on_state(from, m)
     end

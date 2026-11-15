@@ -33,7 +33,7 @@ local DAS, ARR = 170, 50                 -- held LEFT/RIGHT: delay, then repeat 
 local SOFT_MS = 35                       -- ms per row while DOWN is held
 local SLOT_MS = 400                      -- Solana's slot time, for the slot counter
 
-local NET = { HELLO_EVERY = 1200, STATE_EVERY = 400, LOST_AFTER = 6000 }
+local NET = { STATE_EVERY = 400, LOST_AFTER = 6000 }
 local ATTACK = { 0, 1, 2, 4 }            -- garbage rows sent for 1..4 blocks at once
 
 local has_led = led ~= nil
@@ -206,11 +206,10 @@ end
 -- Versus
 local VS = { peer = nil, name = "", game = 0, sent = 0, got = 0, pending = 0,
   last_send = -100000, last_heard = 0, over_at = nil, result = nil }
-local sent_at = { -100000, -100000, -100000, -100000 }
 
 -- Menus
 local menu, menu_title, menu_sub, menu_back = nil, nil, nil, nil
-local LB = { list = nil, title = nil, info = nil, ids = {}, seen = {}, invited = nil, asking = nil, timer = nil }
+local lobby                -- the versus lobby (lobby.lua), made with the menus
 local menu_i = 1
 
 ---------------------------------------------------------------------------
@@ -263,26 +262,10 @@ local function sweep()
   timer.after(led.count * 45 + 200, led.off)
 end
 
-local function name_of(id)
-  if has_mesh then
-    for _, p in ipairs(mesh.nearby()) do
-      if p.id == id then
-        if p.name and p.name ~= "" then return p.name end
-        break
-      end
-    end
-  end
-  return id
-end
-
-local function radio_send(to, m)
-  local t = sys.millis()
-  if t - sent_at[1] < 1000 then return false end   -- at most 4 a second
-  table.remove(sent_at, 1)
-  sent_at[4] = t
-  mesh.send(to, m)
-  return true
-end
+-- The radio (at most 4 messages a second) and badge names: lobby.lua,
+-- shared by all the games.
+local Lobby = require("lobby")
+local radio_send, name_of = Lobby.send, Lobby.name_of
 
 ---------------------------------------------------------------------------
 -- Drawing the board
@@ -826,56 +809,15 @@ function close_menu()
   menu, menu_title, menu_sub, menu_back = nil, nil, nil, nil
 end
 
-local function refresh_lobby()
-  if not LB.list then return end
-  LB.ids = {}
-  for id, t in pairs(LB.seen) do
-    if now - t < 4000 then LB.ids[#LB.ids + 1] = id end
-  end
-  table.sort(LB.ids)
-  local items = {}
-  for i, id in ipairs(LB.ids) do
-    items[i] = { title = name_of(id), right = LB.invited == id and "invited" or nil }
-  end
-  LB.list:items(items)
-  LB.info:text(#items == 0 and "Looking for players... Open Proof of Stack on another badge."
-    or "Pick a player and press SELECT to invite them.")
-end
-
 function open_lobby()
   state = "lobby"
-  LB.invited, LB.asking, LB.seen = nil, nil, {}
   set_game_visible(false)
   show_message(nil)
-  LB.title = ui.label(0, 8, "VERSUS", { size = 20, color = 0xFFFFFF, w = W, align = "center" })
-  LB.info = ui.label(16, 36, "", { size = 12, color = "dim", w = W - 32, align = "center" })
-  LB.list = ui.list(40, 60, W - 80, 140, {}, {
-    on_select = function(i)
-      local id = LB.ids[i]
-      if not id then return end
-      LB.invited = id
-      radio_send(id, { t = "inv" })
-      ui.toast("Invite sent to " .. name_of(id))
-      refresh_lobby()
-    end,
-  })
-  ui.hint("SELECT invite   CANCEL back")
-  radio_send("*", { t = "hi" })
-  LB.timer = timer.every(NET.HELLO_EVERY, function()
-    if state == "lobby" then
-      radio_send("*", { t = "hi" })
-      if LB.invited then radio_send(LB.invited, { t = "inv" }) end
-      refresh_lobby()
-    end
-  end)
-  refresh_lobby()
+  lobby:open()
 end
 
 function close_lobby()
-  if LB.timer then timer.cancel(LB.timer) LB.timer = nil end
-  for _, k in ipairs({ "list", "title", "info" }) do
-    if LB[k] then LB[k]:remove() LB[k] = nil end
-  end
+  lobby:close()
 end
 
 local function start_versus(id, g)
@@ -886,12 +828,7 @@ local function start_versus(id, g)
   new_game(g)                             -- the same seed: the same pieces for both
 end
 
-local function accept_invite(id)
-  local g = math.random(1, 2147483000)
-  radio_send(id, { t = "go", g = g })
-  timer.after(400, function() radio_send(id, { t = "go", g = g }) end)
-  start_versus(id, g)
-end
+lobby = Lobby.new({ title = "VERSUS", game = "Proof of Stack", on_start = start_versus })
 
 local function leave_versus()
   if VS.peer then
@@ -908,31 +845,10 @@ end
 ---------------------------------------------------------------------------
 function on_mesh(from, m)
   if type(m) ~= "table" then return end
-  if board:handle(from, m) then return end
-  if m.t == "hi" then
-    local is_new = LB.seen[from] == nil
-    LB.seen[from] = now
-    if state == "lobby" and is_new then refresh_lobby() end
-  elseif m.t == "inv" then
-    LB.seen[from] = now
-    if state == "lobby" and LB.asking == nil then
-      if LB.invited == from then
-        if badge.id() and badge.id() < from then accept_invite(from) end
-        return
-      end
-      LB.asking = from
-      ui.confirm(name_of(from) .. " wants to play Proof of Stack. Play?", function(yes)
-        LB.asking = nil
-        if yes and state == "lobby" then accept_invite(from) end
-      end)
-    end
-  elseif m.t == "go" or m.t == "s" then
-    if state == "lobby" and LB.invited == from and m.g then
-      start_versus(from, m.g)              -- also covers a lost "go"
-    end
-    if mode == "versus" and from == VS.peer and m.g == VS.game and m.t == "s" then
-      on_peer_state(m)
-    end
+  if lobby:handle(from, m) then return end      -- hello, invites, and the game starting
+  if board:handle(from, m) then return end      -- nearby leaderboard scores
+  if m.t == "s" then
+    if mode == "versus" and from == VS.peer and m.g == VS.game then on_peer_state(m) end
   elseif m.t == "bye" then
     if mode == "versus" and from == VS.peer and m.g == VS.game and (state == "play" or state == "clear") then
       VS.peer = nil
