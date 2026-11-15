@@ -80,8 +80,10 @@ A turn-based throwing game over London, with a nod to the SMB community.
   through, such as the inside of the London Eye and the space under Tower
   Bridge.
 - **Each turn has 30 seconds** (counted down top right, in purple for the
-  last 10). When it runs out, a throw you're charging goes at its current
-  power; otherwise the turn passes.
+  last 10). The badge's 8 lights count down the last 8 seconds: all on,
+  then one goes out each second, first the two beside the screen, then the
+  top row from right to left. When time runs out, a throw you're charging
+  goes at its current power; otherwise the turn passes.
 - **Move around before you throw.** Each turn starts in walk mode with an
   energy bar (100 per turn). Walk along rooftops, drop into the gaps, and
   **climb** any building: hold UP facing a wall (or walk into it) and your

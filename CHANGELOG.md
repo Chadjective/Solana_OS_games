@@ -48,8 +48,10 @@ Versions: **1.1.0** = a new feature, **1.0.1** = a fix only.
   more cheaply).
 - **Quitting a 2-badge game:** the goodbye is sent three times.
 - **Turn clock:** each turn lasts at most 30 seconds (counted down top
-  right). When it runs out, a throw being charged goes at its current
-  power; otherwise the turn passes. No more stalled games.
+  right). The 8 lights count down the last 8 seconds: the two beside the
+  screen go out first, then the top row from right to left. When it runs
+  out, a throw being charged goes at its current power; otherwise the turn
+  passes. No more stalled games.
 - **How to play:** a new menu entry with pages on walking, aiming, the
   weapons, pickups, weather and the 2-player modes.
 - Behind the scenes: `main.lua` split into `cpu.lua` and `art.lua` (it

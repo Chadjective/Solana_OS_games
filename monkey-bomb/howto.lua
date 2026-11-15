@@ -13,8 +13,8 @@ return {
     "",
     "Points for every bit of building you",
     "destroy: more for landmarks, and a",
-    "bonus for toppling one. Each turn has",
-    "30 seconds (top right).",
+    "bonus for toppling one. 30 s a turn:",
+    "the lights count down the last 8.",
   } },
   { title = "WALK", lines = {
     "Each turn starts in WALK mode, with",

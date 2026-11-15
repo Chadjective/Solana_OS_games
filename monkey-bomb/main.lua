@@ -960,6 +960,7 @@ local function land(p, kind)
 end
 
 local function throw(i, a, pw, w)
+  if has_led then led.off() end           -- the turn clock's lights
   local wp = WEAPONS[w]
   if ammo[i][w] == 0 then w, wp = 1, WEAPONS[1] end
   if ammo[i][w] > 0 then ammo[i][w] = ammo[i][w] - 1 end
@@ -1112,6 +1113,7 @@ end
 -- "throw" with weapon 0, so the other badge sees the same.
 local function no_throw(i)
   local m = monkeys[i]
+  if has_led then led.off() end           -- the turn clock's lights
   shots = shots + 1
   jump = nil
   if mode == "duo" and controller(i) == "human" then
@@ -1411,12 +1413,19 @@ function on_tick(ms)
   -- The turn clock: shown top right; when it runs out a charging throw goes
   -- at the power it has, otherwise the turn passes.
   if state == "move" or state == "aim" or state == "charge" or state == "wait" then
-    local before = turn_left
     turn_left = turn_left - ms
     local secs = math.max(0, math.ceil(turn_left / 1000))
     hud_clock:text(secs .. "s")
     hud_clock:color(secs <= 10 and 0x9945FF or 0xFFFFFF)
-    if state ~= "wait" and secs <= 5 and math.ceil(before / 1000) ~= secs then flash(0x99, 0x45, 0xFF, 120) end
+    -- The last 8 seconds on the LEDs: all 8 lit, then one goes out each
+    -- second: first the two beside the screen (8, then 7), then the top
+    -- row from right to left (6 ... 1). Redrawn every tick, so a pickup's
+    -- flash can't leave it wrong.
+    if has_led and state ~= "wait" and secs <= 8 then
+      for i = 1, led.count do
+        if i <= secs then led.set(i, 0x99, 0x45, 0xFF) else led.set(i, 0, 0, 0) end
+      end
+    end
     if turn_left <= 0 and state ~= "wait" then
       if state == "charge" then
         local_throw()

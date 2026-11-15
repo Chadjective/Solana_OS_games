@@ -223,13 +223,21 @@ def timer_check():
     first = "P1:" if any(t.startswith("P1: walk") for t in texts(sim)) else "P2:"
     other = "P2:" if first == "P1:" else "P1:"
     seen_up = False
+    lit_seq = []                                    # the LEDs lit, as the clock runs down
     for _ in range(1100):                           # 33 s
         sim.tick(30)
+        lit = tuple(i for i in range(1, 9) if sim.M.leds[i] and tuple(sim.M.leds[i].values()) != (0, 0, 0))
+        if not lit_seq or lit_seq[-1] != lit:
+            lit_seq.append(lit)
         if any("TIME'S UP" in t for t in texts(sim)):
             seen_up = True
         if any(t.startswith(other + " walk") for t in texts(sim)):
             break
     assert seen_up and any(t.startswith(other + " walk") for t in texts(sim)), texts(sim)
+    # The last 8 seconds on the LEDs: 8 lit, then 8 and 7 (beside the screen)
+    # go out, then the top row from right to left.
+    want = [tuple(range(1, n + 1)) for n in range(8, -1, -1)]
+    assert lit_seq[-9:] == want, lit_seq
 
     # Two badges: whoever's turn it is idles; both badges move on together.
     net.LOSS = 0.2
@@ -273,7 +281,8 @@ def timer_check():
     assert my_turn(watcher) and not my_turn(idler), (texts(a), texts(b))
     assert up_seen, texts(watcher)
     assert canvas_pixels(a) == canvas_pixels(b) and monkey_spots(a) == monkey_spots(b)
-    print("turn timer: an idle player's turn passes after 30 s, on one badge and on two "
+    print("turn timer: the LEDs count down the last 8 s (8 and 7 beside the screen first, then the "
+          "top row right to left); an idle player's turn passes after 30 s, on one badge and on two "
           "(both badges agree, with 20% of messages lost)")
 
 

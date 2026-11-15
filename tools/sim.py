@@ -184,6 +184,11 @@ class Sim:
                         rt = str(it.right)
                         d.text((x + o.w - 10 - d.textlength(rt, font=font(11)), ry + 12), rt,
                                fill=rgb("dim"), font=font(11))
+        # LEDs 7 and 8, on the badge's right edge beside the screen
+        for k, i in enumerate((7, 8)):
+            c = leds[i]
+            if c and (c[1], c[2], c[3]) != (0, 0, 0):
+                d.ellipse([310, 90 + k * 40, 318, 98 + k * 40], fill=(c[1], c[2], c[3]))
         hint = self.M.hint
         if hint:
             d.rectangle([0, 224, 319, 239], fill=(20, 20, 30))
