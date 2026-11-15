@@ -1,7 +1,7 @@
 {
   "id": "solana-pong",
   "name": "Solana Pong",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "",
   "summary": "Pong with the Solana mark as the ball and the bars of the S as paddles.",
   "icon": "play",
