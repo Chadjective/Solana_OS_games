@@ -279,6 +279,12 @@ around you, with yours, best first. LEFT/RIGHT switches category:
 - It's one module, `shared/scores.lua`, copied into every game's folder by
   `python3 tools/sync_shared.py` (edit the copy in `shared/`, then run it).
 
+## Versions
+
+Each game's version is in its `app.json`; what changed in each version is in
+[CHANGELOG.md](CHANGELOG.md). Bump the version for every upload (1.1.0 for a
+new feature, 1.0.1 for a fix): the badge App Store offers it as an update.
+
 ## Try a game on a real badge or the emulator
 
 1. Open the badge site's `/apps/submit` page and drop in the game's folder
