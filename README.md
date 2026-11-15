@@ -226,6 +226,23 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
   green, Devnet purple, Testnet the blue midpoint, Localnet white).
 - A hard drop is a **priority fee**: 2 extra bits per row it falls.
 - The game ends when the **blockspace is full**.
+- **!LAMPs** (the badge's own currency, separate from the bits score) for
+  milestones, up to **69 a day** per player:
+
+  | Milestone | !LAMPs |
+  |---|---|
+  | SUPERMAJORITY (4 blocks at once) | 5 |
+  | Reaching a new epoch | 2 |
+  | Finishing Sprint 40 | 10 |
+  | Winning a versus match (the other player's blockspace fills) | 10 |
+
+  A toast says what was earned. A versus win by a dropped connection or a
+  player leaving earns nothing. Players need X linked to their badge; the
+  game says so once ("Link X to earn !LAMPs"), and once the day's cap is
+  met it says "Today's !LAMPs earned" and stops asking. Offline, nothing
+  is paid and the game carries on. **The badge server pays nothing until
+  the Solana DevRel team gives the game its daily cap** (ask in their
+  Telegram chat with the id `proof-of-stack`).
 - **Modes:**
   - **1 player: Marathon.** Play as long as you can. The best score is saved.
   - **1 player: Sprint 40.** Finalize 40 blocks as fast as you can. The best
@@ -242,7 +259,8 @@ An original falling-block puzzle with Solana and blockchain jokes throughout
 drops faster, SELECT drops instantly, CANCEL quits. On the other clusters the
 arrows turn with gravity, as in the table above.
 
-**Permissions:** LEDs (`led`) and Nearby badges (`mesh`, for versus).
+**Permissions:** LEDs (`led`), Nearby badges (`mesh`, for versus) and
+!LAMPs (`lamps`, to award milestones).
 
 | File | What it is |
 |---|---|
@@ -308,7 +326,9 @@ These run on a computer, not on the badge.
   end, a Marathon through all four clusters (120 blocks, every gravity
   direction, and a SUPERMAJORITY's confetti appearing and clearing), a check that spam rows reach the other badge, and a versus match
   between two badges with 15% of messages dropped, where both must agree on
-  the winner.
+  the winner. It also checks the !LAMPs awards: the right amounts for each
+  milestone, only the real winner paid for versus, and the game stopping
+  (with one message) past the daily cap or without X linked.
 - `python3 tools/test_scores.py` checks the nearby leaderboards in all three
   games: two badges hear each other's bests, the ranking (and lowest-first
   times), switching category, "here now" then "earlier", remembering after

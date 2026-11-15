@@ -82,6 +82,17 @@ def confetti(sim):
                if o.kind == "rect" and (o.w, o.h) in ((6, 6), (9, 4)) and o.visible and not o.removed)
 
 
+def awards(sim):
+    """The !LAMPs the game asked for, as (amount, reason), and what was paid."""
+    L = sim.M.lamps
+    calls = [(c.amount, str(c.reason)) for c in L.calls.values()]
+    return calls, L.paid
+
+
+def toasts(sim):
+    return [str(t) for t in sim.M.toasts.values()]
+
+
 def canvas(sim, w, h):
     return next(o for o in sim.M.objects.values() if o.kind == "canvas" and o.w == w and o.h == h)
 
@@ -381,6 +392,32 @@ def clusters_check(shots_dir=None):
     return sim
 
 
+def lamps_cap_check():
+    """Past the daily cap, or without X linked, the game says so once and
+    stops asking."""
+    for needs_x, cap, expect in ((False, 7, "Today's !LAMPs earned. Back tomorrow!"),
+                                 (True, 69, "Link X to earn !LAMPs")):
+        random.seed(3)
+        sim = Sim("proof-of-stack")
+        sim.M.lamps.cap, sim.M.lamps.needsX = cap, needs_x
+        sim.press("select")
+        bot = Bot(sim, 1.0, random.Random(11))
+        for _ in range(60000):
+            bot.step()
+            sim.tick(30)
+            if int(value(sim, "BLOCKS") or 0) >= 80:
+                break
+        calls, paid = awards(sim)
+        said = [t for t in toasts(sim) if "!LAMPs" in t and "+" not in t]
+        print(f"  {'no X linked' if needs_x else f'cap {cap}'}: {len(calls)} asked, paid {paid}, said {said}")
+        assert said == [expect], said
+        assert paid == (0 if needs_x else cap)
+        # After the server says no, the game stops asking.
+        stop = len(calls) if needs_x else next(i for i in range(len(calls))
+                                               if sum(a for a, _ in calls[:i + 1]) >= cap) + 2
+        assert len(calls) <= stop, (calls, stop)
+
+
 def main():
     random.seed(3)
 
@@ -389,6 +426,11 @@ def main():
     line = next(x for x in texts(sim) if "40 blocks in" in x)
     print(f"sprint: {line.split('   ')[0]} with {pieces} pieces, peak {peak} instructions per callback")
     assert peak < BUDGET * 0.5
+    sim.tick(30)
+    calls, paid = awards(sim)
+    print(f"  !LAMPs asked: {calls}, paid {paid}")
+    assert calls[-1] == (10, "Sprint 40"), calls
+    assert ("+10 !LAMPs  Sprint 40") in toasts(sim)
 
     # Marathon: a sloppier bot plays until the blockspace is full.
     sim, pieces, peak, t = play_single(1, 120000, 0.55, lambda s: "BLOCKSPACE FULL" in texts(s))
@@ -398,7 +440,16 @@ def main():
     assert int(value(sim, "BLOCKS")) > 0 and int(value(sim, "EPOCH")) >= 1
     assert peak < BUDGET * 0.5
 
-    clusters_check()
+    sim = clusters_check()
+    calls, paid = awards(sim)
+    reasons = [r for _, r in calls]
+    print(f"  !LAMPs over the cluster run: {len(calls)} awards, paid {paid} of the daily 69; "
+          f"last toast {toasts(sim)[-1]!r}")
+    assert "SUPERMAJORITY" in reasons and "epoch 2" in reasons
+    assert all(a == (5 if r == "SUPERMAJORITY" else 2) for a, r in calls), calls
+    assert paid <= 69
+
+    lamps_cap_check()
     spam_check()
 
     # Versus: a strong bot against a weaker one, 15% of messages lost.
@@ -428,6 +479,13 @@ def main():
           f"B {net.max_per_second(b.sent)}")
     assert {ra, rb} == {"YOU WIN!", "BLOCKSPACE FULL"}, "exactly one winner"
     assert net.max_per_second(a.sent) <= 4 and net.max_per_second(b.sent) <= 4
+    for _ in range(3):
+        tick()
+    winner, loser = (a, b) if ra == "YOU WIN!" else (b, a)
+    wins = [c for c in awards(winner)[0] if c[1] == "versus win"]
+    print(f"  !LAMPs: winner asked {wins}, loser {[c for c in awards(loser)[0] if c[1] == 'versus win']}")
+    assert wins == [(10, "versus win")]
+    assert not [c for c in awards(loser)[0] if c[1] == "versus win"]
     print("OK")
 
 

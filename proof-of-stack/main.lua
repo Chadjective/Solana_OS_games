@@ -36,6 +36,12 @@ local ATTACK = { 0, 1, 2, 4 }            -- garbage rows sent for 1..4 blocks at
 local has_led = led ~= nil
 local has_mesh = mesh ~= nil
 local has_keys = sys.keys ~= nil
+local has_lamps = lamps ~= nil
+
+-- !LAMPs, the badge's own currency, for milestones (the score is bits).
+-- The badge server pays only up to the game's daily cap per player (69,
+-- set by the Solana DevRel team), so the game stops asking once it's met.
+local REWARD = { supermajority = 5, epoch = 2, sprint = 10, versus = 10 }
 
 ---------------------------------------------------------------------------
 -- Pieces: the seven four-cell shapes, coloured along the Solana gradient:
@@ -219,6 +225,25 @@ end
 local function clock(ms)
   local t = ms // 100
   return string.format("%d:%02d.%d", t // 600, (t // 10) % 60, t % 10)
+end
+
+-- Asks the badge server for !LAMPs and says what came of it. Offline, not
+-- linked, or past the daily cap: nothing is paid and the game carries on.
+local lamps_done = false   -- true once the cap is met (or X isn't linked) this session
+local function award(amount, reason)
+  if not has_lamps or lamps_done then return end
+  lamps.award(amount, reason, function(ok, r)
+    if not ok or type(r) ~= "table" then return end
+    if (r.awarded or 0) > 0 then
+      ui.toast("+" .. r.awarded .. " !LAMPs  " .. reason)
+    elseif r.needsX then
+      lamps_done = true
+      ui.toast("Link X to earn !LAMPs")
+    else
+      lamps_done = true
+      ui.toast("Today's !LAMPs earned. Back tomorrow!")
+    end
+  end)
 end
 
 local function show_message(a, b)
@@ -626,11 +651,13 @@ local function finish_clear()
     side_message("SUPERMAJORITY!", "+" .. commas(pay), idea)
     sweep()
     confetti_burst()
+    award(REWARD.supermajority, "SUPERMAJORITY")
   else
     side_message(idea, "+" .. commas(pay), n .. " FINALIZED")
     flash(0x14, 0xF1, 0x95, 90)
   end
   if epoch > old_epoch then
+    award(REWARD.epoch, "epoch " .. epoch)
     local cl, dir = cluster_of(epoch)
     if dir ~= orient then
       -- A new cluster (or Localnet's turn): gravity changes direction.
@@ -718,7 +745,9 @@ local function new_game(seed)
 end
 
 -- The game ends: won (sprint done, or the other player topped out) or not.
-function finish(won)
+-- `earned` marks a versus win that pays !LAMPs: the other player's
+-- blockspace filled (not a dropped connection or a player who left).
+function finish(won, earned)
   if state == "over" then return end
   state = "over"
   render()
@@ -731,10 +760,12 @@ function finish(won)
       line = line .. "  NEW BEST"
     end
     sweep()
+    award(REWARD.sprint, "Sprint 40")
   elseif mode == "versus" then
     title = won and "YOU WIN!" or "BLOCKSPACE FULL"
     line = won and (VS.name .. "'s blockspace is full") or (VS.name .. " wins")
     if won then best.wins = (best.wins or 0) + 1 sweep() end
+    if won and earned then award(REWARD.versus, "versus win") end
     VS.result = won and "win" or "lose"
     VS.over_at = now
   else
@@ -787,7 +818,7 @@ local function on_peer_state(m)
   local hs = {}
   for i = 1, #(m.h or "") do hs[i] = string.byte(m.h, i) - 97 end
   render_peer(hs)
-  if m.o == 1 and (state == "play" or state == "clear") then finish(true) end
+  if m.o == 1 and (state == "play" or state == "clear") then finish(true, true) end
   update_panel()
 end
 

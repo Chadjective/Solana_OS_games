@@ -7,5 +7,5 @@
   "icon": "list",
   "accent": "14F195",
   "category": "games",
-  "permissions": ["led", "mesh"]
+  "permissions": ["led", "mesh", "lamps"]
 }

@@ -97,6 +97,21 @@ function led.hex(i, c) M.leds[i] = { c >> 16, (c >> 8) & 255, c & 255 } end
 function led.fill(r, g, b) for i = 1, 8 do M.leds[i] = { r, g, b } end end
 function led.off() M.leds = {} end
 
+-- !LAMPs: the server pays up to the app's daily cap (M.lamps.cap) and
+-- answers on a later tick, as the real one does over the network.
+M.lamps = { cap = 69, paid = 0, calls = {}, needsX = false, waiting = {} }
+lamps = {}
+function lamps.award(amount, reason, cb)
+  local L = M.lamps
+  L.calls[#L.calls + 1] = { amount = amount, reason = reason }
+  local give = 0
+  if not L.needsX then give = math.max(0, math.min(amount, L.cap - L.paid)) end
+  L.paid = L.paid + give
+  L.waiting[#L.waiting + 1] = function()
+    cb(true, { awarded = give, balance = 1000 + L.paid, needsX = L.needsX or nil })
+  end
+end
+
 timer = {}
 local tid = 0
 -- The badge allows 8 timers at a time and stops the app on a 9th.
@@ -167,6 +182,9 @@ end
 
 function M.tick(ms)
   M.now = M.now + ms
+  local answers = M.lamps.waiting
+  M.lamps.waiting = {}
+  for _, f in ipairs(answers) do f() end
   for id, t in pairs(M.timers) do
     if t.at <= M.now then
       -- A one-shot timer is spent (and frees its place) as it fires.
