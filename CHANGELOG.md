@@ -52,9 +52,10 @@ Versions: **1.1.0** = a new feature, **1.0.1** = a fix only.
   power; otherwise the turn passes. No more stalled games.
 - **How to play:** a new menu entry with pages on walking, aiming, the
   weapons, pickups, weather and the 2-player modes.
-- Behind the scenes: `main.lua` split into `cpu.lua`, `lobby.lua` and
-  `art.lua` (it was close to the store's 64 KB per-file limit), plus the
-  shared `scores.lua`, `lobby.lua` and `help.lua`, and `howto.lua`.
+- Behind the scenes: `main.lua` split into `cpu.lua` and `art.lua` (it
+  was close to the store's 64 KB per-file limit), plus the shared
+  `lobby.lua`, `scores.lua` and `help.lua`, and `howto.lua` (the How to
+  play text).
 
 ### 1.0.0 (first upload)
 - Turn-based throwing game over a London skyline of 20 landmarks, with
